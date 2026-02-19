@@ -1,0 +1,85 @@
+# VPN-only IngressRoutes for internal dashboard, Traefik, ArgoCD, Infisical
+# Restricted to wireguard_subnet. Uses self-signed TLS (Let's Encrypt doesn't support .local)
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: internal-dashboard-vpn
+  namespace: {{ traefik_namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`dashboard.{{ vpn_internal_domain | default('blumefy.local') }}`)
+      kind: Rule
+      middlewares:
+        - name: vpn-allowlist
+          namespace: {{ traefik_namespace }}
+      services:
+        - name: internal-dashboard
+          port: 80
+          namespace: {{ traefik_namespace }}
+  tls:
+    secretName: tls-blumefy-local
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard-vpn
+  namespace: {{ traefik_namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`traefik.{{ vpn_internal_domain | default('blumefy.local') }}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))
+      kind: Rule
+      middlewares:
+        - name: vpn-allowlist
+          namespace: {{ traefik_namespace }}
+      services:
+        - name: api@internal
+          kind: TraefikService
+  tls:
+    secretName: tls-blumefy-local
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-vpn
+  namespace: {{ argocd_namespace | default('argocd') }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`argocd.{{ vpn_internal_domain | default('blumefy.local') }}`)
+      kind: Rule
+      middlewares:
+        - name: vpn-allowlist
+      services:
+        - name: argocd-server
+          port: 80
+          namespace: {{ argocd_namespace | default('argocd') }}
+  tls:
+    secretName: tls-blumefy-local
+{% if infisical_enabled | default(false) %}
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: infisical-vpn
+  namespace: {{ infisical_namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`infisical.{{ vpn_internal_domain | default('blumefy.local') }}`)
+      kind: Rule
+      middlewares:
+        - name: vpn-allowlist
+      services:
+        - name: infisical-infisical-standalone-infisical
+          port: 8080
+          namespace: {{ infisical_namespace }}
+  tls:
+    secretName: tls-blumefy-local
+{% endif %}

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Remove VPN-internal hosts from /etc/hosts when disconnecting
+# Run: sudo ./remove-vpn-hosts.sh
+set -e
+MARKER="# VPN-internal-blumefy"
+if [[ "$EUID" -ne 0 ]]; then
+  echo "Run with sudo to remove VPN hosts."
+  exit 1
+fi
+# Remove marker line and the next line (our hosts entry)
+awk -v m="$MARKER" '
+  $0 ~ m { skip=1; next }
+  skip { skip=0; next }
+  { print }
+' /etc/hosts > /etc/hosts.tmp && mv /etc/hosts.tmp /etc/hosts
+echo "Removed VPN hosts."

@@ -1,10 +1,11 @@
-# roles/traefik/templates/middleware-security.yml.j2
+# Security headers middleware — deploy to traefik + all IngressRoute namespaces (Traefik CRD requires same-namespace)
+{% for ns in ([traefik_namespace] + (subdomains | map(attribute='namespace') | unique | list) + ([monitoring_namespace] if (monitoring_enabled | default(false)) else [])) | unique %}
 ---
-apiVersion: traefik.io/v1alpha1
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
 kind: Middleware
 metadata:
   name: security-headers
-  namespace: {{ traefik_namespace }}
+  namespace: {{ ns }}
 spec:
   headers:
     frameDeny: true
@@ -20,3 +21,4 @@ spec:
     customResponseHeaders:
       server: ""
       X-Powered-By: ""
+{% endfor %}

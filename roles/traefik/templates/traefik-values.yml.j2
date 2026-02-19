@@ -6,13 +6,16 @@ service:
   type: LoadBalancer
   annotations:
     metallb.universe.tf/address-pool: contabo-pool
+  spec:
+    externalTrafficPolicy: Local   # Preserve client IP for vpn-allowlist middleware
 
 # No anti-affinity: with 1 replica + ReadWriteOnce PVC, spreading would leave 2nd pod pending
 
 # Chart v39+: redirectTo → http.redirections.entryPoint; tls → http.tls
+# With hostPort, node forwards 80/443 to Traefik (8000/8443) — no privileged port bind in container
 ports:
   web:
-    port: 80
+    hostPort: 80
     http:
       redirections:
         entryPoint:
@@ -20,7 +23,7 @@ ports:
           scheme: https
           permanent: true
   websecure:
-    port: 443
+    hostPort: 443
     http:
       tls:
         enabled: true
@@ -39,7 +42,7 @@ persistence:
 
 ingressRoute:
   dashboard:
-    enabled: {{ traefik_dashboard_exposed | default(false) }}
+    enabled: {{ (traefik_dashboard_exposed | default(false)) or (vpn_internal_ui_enabled | default(false)) }}
 
 additionalArguments:
   - '--global.checknewversion=false'
@@ -47,7 +50,7 @@ additionalArguments:
   - '--log.level=WARN'
   - '--api.insecure=false'
   - '--accesslog=true'
-  - '--accesslog.filepath=/var/log/traefik/access.log'
+  - '--accesslog.filepath=/tmp/traefik-access.log'
 
 resources:
   requests:
@@ -56,3 +59,13 @@ resources:
   limits:
     cpu: 500m
     memory: 512Mi
+
+# When VPN internal enabled: hostPort 80/443 on node1 (10.10.10.1); pin to WireGuard server node
+{% if vpn_internal_ui_enabled | default(false) %}
+nodeSelector:
+  kubernetes.io/hostname: "{{ traefik_vpn_node | default('node1') }}"
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+{% endif %}

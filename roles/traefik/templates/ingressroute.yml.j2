@@ -1,6 +1,6 @@
 # roles/traefik/templates/ingressroute.yml.j2
 ---
-apiVersion: traefik.io/v1alpha1
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
 kind: IngressRoute
 metadata:
   name: {{ item.name | replace('.', '-') }}-route
@@ -13,9 +13,9 @@ spec:
       kind: Rule
       middlewares:
         - name: security-headers
-          namespace: {{ traefik_namespace }}
+          namespace: {{ item.namespace }}
         - name: rate-limit
-          namespace: {{ traefik_namespace }}
+          namespace: {{ item.namespace }}
       services:
         - name: {{ item.service }}
           port: {{ item.port }}

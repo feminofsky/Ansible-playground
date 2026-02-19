@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: internal-dashboard
+  namespace: {{ traefik_namespace }}
+  labels:
+    app: internal-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: internal-dashboard
+  template:
+    metadata:
+      labels:
+        app: internal-dashboard
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: html
+          configMap:
+            name: internal-dashboard-html

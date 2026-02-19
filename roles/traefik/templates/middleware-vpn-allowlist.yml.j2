@@ -1,0 +1,15 @@
+# VPN-only middleware: allow access only from WireGuard subnet
+# Deploy to each namespace that has IngressRoutes referencing it (Traefik CRD requires same-namespace)
+# Helm chart 39 CRDs still use ipWhiteList (ipAllowList not in schema yet)
+{% for ns in [traefik_namespace, (argocd_namespace | default('argocd'))] + ([infisical_namespace] if (infisical_enabled | default(false)) else []) %}
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: Middleware
+metadata:
+  name: vpn-allowlist
+  namespace: {{ ns }}
+spec:
+  ipWhiteList:
+    sourceRange:
+      - {{ wireguard_subnet }}
+{% endfor %}

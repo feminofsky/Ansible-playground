@@ -55,10 +55,15 @@ metallb_version: "v0.15.3"
 metallb_ip_pool: "{{ node1_ip }}/32"
 
 # ─── Traefik ────────────────────────────────────────
-traefik_version: "39.0.0"   # Helm chart version
+traefik_version: "39.0.1"   # Helm chart version (Traefik v3)
 traefik_namespace: traefik
+traefik_crd_api_group: traefik.io   # v3 uses traefik.io; v2 used traefik.containo.us
 traefik_replicas: 1          # 1 replica: PVC is ReadWriteOnce, can't spread across nodes
-traefik_dashboard_exposed: false   # Never expose dashboard to domain; use kubectl port-forward
+traefik_dashboard_exposed: false   # Set true when vpn_internal_ui_enabled
+vpn_internal_ui_enabled: true      # Expose internal UIs at *.blumefy.local (VPN-only, self-signed TLS)
+vpn_internal_domain: blumefy.local # .local avoids confusion with public blumefy.com
+traefik_vpn_node: node1            # K8s node with WireGuard (10.10.10.1). Override if your node has different name.
+vpn_use_dnsmasq: false   # false = use add-vpn-hosts.sh for *.blumefy.local; avoids breaking K8s/Lens/general DNS on Mac
 
 # ─── Infisical (secrets management) ───────────────────
 infisical_enabled: true
@@ -70,7 +75,7 @@ infisical_redis_size: 8Gi
 # DB name set by Infisical standalone Helm chart (often infisicalDB)
 infisical_postgres_database: infisicalDB
 # SITE_URL for redirects when using port-forward; not exposed via Traefik
-infisical_site_url: "http://localhost"
+infisical_site_url: "{{ 'https://infisical.' + (vpn_internal_domain | default('blumefy.local')) if (vpn_internal_ui_enabled | default(false)) else 'http://localhost' }}"
 # Pin entire stack to node1: avoids cross-node DNS (EAI_AGAIN) over VPN/Flannel in K3s
 infisical_node: node1
 
@@ -129,25 +134,17 @@ namespace_stacks:
     rabbitmq_storage: "{{ prod_rabbitmq_storage }}"
     rabbitmq_version: "{{ prod_rabbitmq_version }}"
 
+# ─── VPN-only internal UIs (*.blumefy.local) ─
+# Exposed via Traefik with IP allowlist to wireguard_subnet only. Self-signed TLS.
+# Run add-vpn-hosts.sh in wireguard-configs/ when connecting.
+vpn_internal_hosts:
+  - dashboard.blumefy.local  # Internal apps landing page
+  - traefik.blumefy.local    # Traefik dashboard
+  - argocd.blumefy.local     # Argo CD UI
+  - infisical.blumefy.local   # Infisical UI
+  - metallb.blumefy.local     # MetalLB has no UI; host resolves for convenience
+
 # ─── Subdomains ─────────────────────────────────────
-subdomains:
-  - name: admin
-    service: admin-service
-    port: 80
-    namespace: prod
-  - name: api
-    service: api-service
-    port: 80
-    namespace: prod
-  - name: dev
-    service: dev-service
-    port: 80
-    namespace: dev
-  - name: dev.admin
-    service: dev-admin-service
-    port: 80
-    namespace: dev
-  - name: dev.api
-    service: dev-api-service
-    port: 80
-    namespace: dev
+# IngressRoutes for prod/dev apps. Set when you have matching K8s Services deployed.
+# Example: subdomains: [{name: admin, service: admin-service, port: 80, namespace: prod}, ...]
+subdomains: []

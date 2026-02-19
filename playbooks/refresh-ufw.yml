@@ -97,6 +97,17 @@
         src: "{{ wireguard_subnet }}"
       when: wireguard_enabled | default(false)
 
+    - name: Allow DNS from VPN (dnsmasq for *.blumefy.local)
+      ufw:
+        rule: allow
+        port: 53
+        proto: udp
+        src: "{{ wireguard_subnet }}"
+      when: >-
+        inventory_hostname == 'node1'
+        and (wireguard_enabled | default(false))
+        and (vpn_internal_ui_enabled | default(false))
+
     - name: Allow WireGuard port on node1
       ufw:
         rule: allow

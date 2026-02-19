@@ -130,6 +130,42 @@
     daemon_reload: yes
   when: inventory_hostname == 'node1'
 
+- name: Install and configure dnsmasq for *.blumefy.local (automatic VPN DNS)
+  when:
+    - inventory_hostname == 'node1'
+    - vpn_internal_ui_enabled | default(false)
+  block:
+    - name: Install dnsmasq
+      apt:
+        name: dnsmasq
+        state: present
+
+    - name: Template dnsmasq config (listens on 10.10.10.1 only; no conflict with systemd-resolved)
+      template:
+        src: dnsmasq.conf.j2
+        dest: /etc/dnsmasq.d/blumefy-local.conf
+
+    - name: Ensure dnsmasq systemd drop-in directory exists
+      file:
+        path: /etc/systemd/system/dnsmasq.service.d
+        state: directory
+        mode: '0755'
+
+    - name: Ensure dnsmasq starts after WireGuard (so 10.10.10.1 exists)
+      copy:
+        dest: /etc/systemd/system/dnsmasq.service.d/wait-for-wg.conf
+        content: |
+          [Unit]
+          After=wg-quick@{{ wireguard_interface }}.service
+        mode: '0644'
+
+    - name: Restart dnsmasq
+      systemd:
+        name: dnsmasq
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+
 - name: Ensure wireguard configs output directory exists locally
   file:
     path: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}"
@@ -156,6 +192,41 @@
   when:
     - inventory_hostname == 'node1'
     - item.name != 'node2'
+
+- name: Template vpn-hosts.txt
+  when:
+    - inventory_hostname == 'node1'
+    - wireguard_enabled | default(false)
+    - vpn_internal_ui_enabled | default(false)
+  template:
+    src: vpn-hosts.txt.j2
+    dest: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}/vpn-hosts.txt"
+  delegate_to: localhost
+  become: false
+
+- name: Template add-vpn-hosts.sh
+  when:
+    - inventory_hostname == 'node1'
+    - wireguard_enabled | default(false)
+    - vpn_internal_ui_enabled | default(false)
+  template:
+    src: add-vpn-hosts.sh.j2
+    dest: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}/add-vpn-hosts.sh"
+    mode: '0755'
+  delegate_to: localhost
+  become: false
+
+- name: Template remove-vpn-hosts.sh
+  when:
+    - inventory_hostname == 'node1'
+    - wireguard_enabled | default(false)
+    - vpn_internal_ui_enabled | default(false)
+  template:
+    src: remove-vpn-hosts.sh.j2
+    dest: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}/remove-vpn-hosts.sh"
+    mode: '0755'
+  delegate_to: localhost
+  become: false
 
 - name: Deploy node2 WireGuard config
   copy:

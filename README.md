@@ -154,6 +154,22 @@ Run: `ansible-playbook playbooks/site.yml --tags wireguard,k8s_access` (or full 
 
 **Without WireGuard** (`wireguard_enabled: false`): Add each admin IP to `k3s_api_allowed_ips`, re-run security role.
 
+## VPN-internal UIs (*.blumefy.local)
+
+When `vpn_internal_ui_enabled: true` (default), Traefik exposes these UIs at `*.blumefy.local` **only** to WireGuard subnet. Uses self-signed TLS (accept once in browser).
+
+**Automatic DNS:** dnsmasq on node1 resolves `*.blumefy.local` when you're connected. Just connect to WireGuard and open **https://dashboard.blumefy.local** — no scripts or `/etc/hosts` needed. (Re-import your WireGuard config after running the playbook to get the DNS setting.)
+
+| URL | Service |
+|-----|---------|
+| **https://dashboard.blumefy.local** | **Internal dashboard** — landing page with links to all apps |
+| https://traefik.blumefy.local/dashboard/ | Traefik dashboard |
+| https://argocd.blumefy.local | Argo CD UI |
+| https://infisical.blumefy.local | Infisical UI |
+| metallb.blumefy.local | MetalLB has no UI; host resolves for convenience |
+
+**Fallback** (if not using VPN DNS): Run `sudo ./add-vpn-hosts.sh` from `wireguard-configs/` to add hosts to `/etc/hosts`.
+
 ## Argo CD GitOps (GitHub → cluster)
 
 Argo CD runs in the cluster and **pulls from GitHub** — no need to expose the K3s API.
@@ -175,7 +191,7 @@ argocd_gitops_repo_url: "git@github.com/YOUR_ORG/gitops-services.git"
 
 4. Add YAML files to `applications/` in your repo (see `argocd/applications/example-dev.yaml` format).
 
-5. Access Argo CD: `kubectl port-forward -n argocd svc/argocd-server 8080:443` → https://localhost:8080
+5. Access Argo CD: `https://argocd.blumefy.local` (when on VPN) or `kubectl port-forward -n argocd svc/argocd-server 8080:443` → https://localhost:8080
 
 ## Recovery — Locked out of a node?
 

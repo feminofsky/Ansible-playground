@@ -52,6 +52,12 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+- name: Create namespaces for IngressRoutes (prod, dev, etc.)
+  shell: kubectl create namespace {{ item }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  loop: "{{ ((subdomains | map(attribute='namespace') | unique | list) + ([monitoring_namespace] if (monitoring_enabled | default(false)) else [])) | unique }}"
+
 - name: Apply security headers middleware
   template:
     src: middleware-security.yml.j2
@@ -70,23 +76,159 @@
     - security
     - ratelimit
 
-- name: Create namespaces for IngressRoutes (prod, dev, etc.)
-  shell: kubectl create namespace {{ item }} --dry-run=client -o yaml | kubectl apply -f -
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  loop: "{{ subdomains | map(attribute='namespace') | unique | list }}"
+- name: Apply VPN allowlist middleware (WireGuard subnet only)
+  when: vpn_internal_ui_enabled | default(false)
+  block:
+    - name: Template VPN allowlist middleware
+      template:
+        src: middleware-vpn-allowlist.yml.j2
+        dest: /tmp/middleware-vpn-allowlist.yml
+
+    - name: Apply VPN allowlist middleware
+      command: kubectl apply -f /tmp/middleware-vpn-allowlist.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Remove orphan subdomain IngressRoutes when subdomains is empty
+  when: subdomains | length == 0
+  block:
+    - name: Delete subdomain IngressRoutes from prod
+      command: >
+        kubectl delete ingressroute {{ item }} -n prod --ignore-not-found
+      loop:
+        - admin-route
+        - api-route
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Delete subdomain IngressRoutes from dev
+      command: >
+        kubectl delete ingressroute {{ item }} -n dev --ignore-not-found
+      loop:
+        - dev-route
+        - dev-admin-route
+        - dev-api-route
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Apply IngressRoutes for all subdomains
+  when: subdomains | length > 0
   template:
     src: ingressroute.yml.j2
     dest: /tmp/ingressroute-{{ item.name }}.yml
   loop: "{{ subdomains }}"
 
 - name: Apply IngressRoutes to cluster
+  when: subdomains | length > 0
   command: kubectl apply -f /tmp/ingressroute-{{ item.name }}.yml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   loop: "{{ subdomains }}"
+
+- name: Ensure argocd and infisical namespaces exist (for VPN IngressRoutes)
+  when: vpn_internal_ui_enabled | default(false)
+  shell: kubectl create namespace {{ item }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  loop:
+    - "{{ argocd_namespace | default('argocd') }}"
+    - "{{ infisical_namespace }}"
+
+- name: Generate self-signed TLS cert for *.blumefy.local
+  when: vpn_internal_ui_enabled | default(false)
+  block:
+    - name: Create self-signed cert for VPN internal domain
+      command: >
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048
+        -keyout /tmp/blumefy-local.key -out /tmp/blumefy-local.crt
+        -subj "/CN=*.{{ vpn_internal_domain | default('blumefy.local') }}"
+        -addext "subjectAltName=DNS:*.{{ vpn_internal_domain | default('blumefy.local') }},DNS:{{ vpn_internal_domain | default('blumefy.local') }}"
+
+    - name: Create TLS secret for VPN internal (traefik namespace)
+      shell: >
+        kubectl create secret tls tls-blumefy-local
+        --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
+        -n {{ traefik_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create TLS secret for VPN internal (argocd namespace)
+      shell: >
+        kubectl create secret tls tls-blumefy-local
+        --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
+        -n {{ argocd_namespace | default('argocd') }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create TLS secret for VPN internal (infisical namespace)
+      when: infisical_enabled | default(false)
+      shell: >
+        kubectl create secret tls tls-blumefy-local
+        --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
+        -n {{ infisical_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Remove temp cert files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/blumefy-local.key
+        - /tmp/blumefy-local.crt
+
+- name: Deploy internal dashboard (landing page for all VPN apps)
+  when: vpn_internal_ui_enabled | default(false)
+  block:
+    - name: Template internal dashboard HTML
+      template:
+        src: internal-dashboard-index.html.j2
+        dest: /tmp/internal-dashboard-index.html
+
+    - name: Template internal dashboard deployment
+      template:
+        src: internal-dashboard-deployment.yml.j2
+        dest: /tmp/internal-dashboard-deployment.yml
+
+    - name: Template internal dashboard service
+      template:
+        src: internal-dashboard-service.yml.j2
+        dest: /tmp/internal-dashboard-service.yml
+
+    - name: Create internal dashboard ConfigMap from HTML
+      shell: >
+        kubectl create configmap internal-dashboard-html
+        --from-file=index.html=/tmp/internal-dashboard-index.html
+        -n {{ traefik_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Apply internal dashboard Deployment
+      command: kubectl apply -f /tmp/internal-dashboard-deployment.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Apply internal dashboard Service
+      command: kubectl apply -f /tmp/internal-dashboard-service.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Apply VPN-only IngressRoutes (dashboard, traefik, argocd, infisical)
+  when: vpn_internal_ui_enabled | default(false)
+  block:
+    - name: Template VPN IngressRoutes
+      template:
+        src: ingressroute-vpn-internal.yml.j2
+        dest: /tmp/ingressroute-vpn-internal.yml
+
+    - name: Apply VPN IngressRoutes to cluster
+      command: kubectl apply -f /tmp/ingressroute-vpn-internal.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Get Traefik external IP
   command: >

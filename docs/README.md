@@ -4,6 +4,8 @@
 
 | Document | Description |
 |----------|-------------|
+| [VPN_INTERNAL_DASHBOARD.md](VPN_INTERNAL_DASHBOARD.md) | Connect to WireGuard and access the internal dashboard & all VPN-only apps (*.blumefy.local) |
+| [ARGOCD_SUBMODULE.md](ARGOCD_SUBMODULE.md) | Argo CD as git submodule — setup and usage |
 | [RECOVERY.md](RECOVERY.md) | Locked out of a node? Restore SSH access via Contabo VNC console |
 
 ## Quick links

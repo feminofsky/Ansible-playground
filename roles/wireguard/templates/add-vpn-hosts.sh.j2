@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Add VPN-internal hosts to /etc/hosts when connecting to WireGuard
+# Run: sudo ./add-vpn-hosts.sh
+# Remove with: sudo ./remove-vpn-hosts.sh
+set -e
+MARKER="# VPN-internal-blumefy"
+HOSTS_LINE="{{ wireguard_node1_ip }}{% for h in vpn_internal_hosts %} {{ h }}{% endfor %}"
+
+if grep -q "$MARKER" /etc/hosts 2>/dev/null; then
+  echo "VPN hosts already present."
+  exit 0
+fi
+echo "$MARKER" >> /etc/hosts
+echo "$HOSTS_LINE" >> /etc/hosts
+echo "Added VPN hosts. Start at: https://dashboard.{{ vpn_internal_domain | default('blumefy.local') }}"

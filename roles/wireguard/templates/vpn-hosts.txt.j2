@@ -1,0 +1,5 @@
+# VPN-internal hosts — add to /etc/hosts when connected to WireGuard
+# Run: sudo ./add-vpn-hosts.sh (from wireguard-configs/)
+#
+# VPN-internal-blumefy
+{{ wireguard_node1_ip }}{% for h in vpn_internal_hosts %} {{ h }}{% endfor %}

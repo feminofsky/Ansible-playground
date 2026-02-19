@@ -1,0 +1,11 @@
+# dnsmasq for *.blumefy.local — VPN internal DNS
+# Listens on WireGuard IP only; VPN clients use this when DNS=10.10.10.1 in WireGuard config
+listen-address={{ wireguard_node1_ip }}
+bind-interfaces
+# Resolve *.blumefy.local to Traefik on WireGuard IP (avoids needing node1 public IP in AllowedIPs)
+address=/{{ vpn_internal_domain | default('blumefy.local') }}/{{ wireguard_node1_ip }}
+# Forward all other queries upstream
+server=8.8.8.8
+server=1.1.1.1
+no-resolv
+no-poll

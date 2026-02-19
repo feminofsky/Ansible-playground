@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blumefy Internal — Applications</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e8e8e8;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem;
+    }
+    h1 {
+      font-weight: 600;
+      font-size: 1.75rem;
+      margin-bottom: 0.5rem;
+      color: #fff;
+    }
+    .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem;
+      max-width: 720px;
+    }
+    a.card {
+      display: block;
+      padding: 1.25rem 1.5rem;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      text-decoration: none;
+      color: inherit;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    a.card:hover {
+      background: rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.2);
+    }
+    .card h2 { font-size: 1rem; margin: 0 0 0.25rem 0; }
+    .card p { font-size: 0.8rem; color: #94a3b8; margin: 0; }
+  </style>
+</head>
+<body>
+  <h1>Blumefy Internal</h1>
+  <p class="subtitle">VPN-only applications</p>
+  <div class="grid">
+    <a href="https://traefik.{{ vpn_internal_domain | default('blumefy.local') }}/dashboard/" class="card">
+      <h2>Traefik</h2>
+      <p>Ingress dashboard</p>
+    </a>
+    <a href="https://argocd.{{ vpn_internal_domain | default('blumefy.local') }}" class="card">
+      <h2>Argo CD</h2>
+      <p>GitOps deployments</p>
+    </a>
+    <a href="https://infisical.{{ vpn_internal_domain | default('blumefy.local') }}" class="card">
+      <h2>Infisical</h2>
+      <p>Secrets management</p>
+    </a>
+    <div class="card" style="cursor:default; opacity:0.7;">
+      <h2>MetalLB</h2>
+      <p>No UI — use kubectl</p>
+    </div>
+  </div>
+</body>
+</html>

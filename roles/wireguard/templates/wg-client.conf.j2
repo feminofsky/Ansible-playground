@@ -5,10 +5,13 @@
 [Interface]
 Address = {{ client_ip }}/24
 PrivateKey = {{ client_private_key }}
-# No DNS: node1 has no recursive resolver; use your normal DNS for internet
+{% if (vpn_internal_ui_enabled | default(false)) and (vpn_use_dnsmasq | default(false)) %}
+DNS = {{ wireguard_node1_ip }}
+{% endif %}
 
 [Peer]
 PublicKey = {{ wg_server_public_key }}
 Endpoint = {{ node1_ip }}:{{ wireguard_port }}
+# *.blumefy.local resolves to wireguard_node1_ip (10.10.10.1), so wireguard_subnet alone is enough
 AllowedIPs = {{ wireguard_subnet }}
 PersistentKeepalive = 25
