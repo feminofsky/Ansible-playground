@@ -78,8 +78,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ $name }}-configmap
+            {{- if hasKey $app "secrets" }}
             - secretRef:
                 name: {{ $name }}-secrets
+            {{- end }}
           resources:
             {{- toYaml $app.resources | nindent 12 }}
           {{- if hasKey $app "privileged" }}
@@ -110,10 +112,13 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 6
           {{- end }}
+          {{- if hasKey $app "secrets" }}
           volumeMounts:
             - name: secrets-store-inline
               mountPath: "/mnt/secrets-store"
               readOnly: true
+          {{- end }}
+      {{- if hasKey $app "secrets" }}
       volumes:
       - name: secrets-store-inline
         csi:
@@ -121,6 +126,7 @@ spec:
           readOnly: true
           volumeAttributes:
             secretProviderClass: "{{ $name }}-spc"
+      {{- end }}
 ---
 {{- end }}
 {{- end }}

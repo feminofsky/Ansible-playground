@@ -6,6 +6,8 @@ apiVersion: secrets-store.csi.x-k8s.io/v1
 kind: SecretProviderClass
 metadata:
   name: {{ $name }}-spc
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   provider: infisical
   secretObjects:
