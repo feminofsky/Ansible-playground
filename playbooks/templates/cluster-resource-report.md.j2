@@ -1,0 +1,57 @@
+# Cluster Resource Report
+
+**Generated:** {{ ansible_date_time.iso8601 }}
+
+---
+
+## Nodes
+
+```
+{{ nodes_table.stdout }}
+```
+
+---
+
+## Current Usage (kubectl top)
+
+{% if top_nodes.stdout and top_nodes.stdout | trim %}
+```
+{{ top_nodes.stdout }}
+
+{{ top_pods.stdout if top_pods.stdout else '' }}
+```
+{% else %}
+*Metrics unavailable (install metrics-server for `kubectl top`)*
+{% endif %}
+
+---
+
+## Pods: Requests & Limits
+
+```
+NAMESPACE    POD                              CPU_REQ        CPU_LIM    MEM_REQ    MEM_LIM
+{{ pods_resources.stdout }}
+```
+
+---
+
+## Cluster Totals
+
+| Metric | CPU | Memory |
+|--------|-----|--------|
+| **Allocatable** | {{ total_alloc_cpu_m }}m | {{ total_alloc_mem_mi }} Mi |
+| **Requested** | {{ total_req_cpu_m }}m | {{ total_req_mem_mi }} Mi |
+| **Available** | {{ avail_cpu_m }}m | {{ avail_mem_mi }} Mi |
+
+---
+
+## Capacity Estimate
+
+Based on default template (`argocd/services/example`): **100m CPU, 64Mi memory** per pod.
+
+| Namespace | New Services | Replicas |
+|-----------|--------------|----------|
+| **DEV** | {{ services_dev_fit }} | 1 |
+| **PROD** | {{ services_prod_fit }} | 3 |
+
+**Bottleneck:** {{ bottleneck }}

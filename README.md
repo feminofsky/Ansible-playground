@@ -21,7 +21,7 @@ ansible/
 │   ├── metallb/               # MetalLB bare-metal load balancer
 │   ├── traefik/               # Traefik ingress + SSL + security middleware
 │   ├── infisical/             # Infisical secrets management (no public ingress)
-│   ├── argocd/                # Argo CD GitOps (GitHub → cluster)
+│   ├── argocd/                # Argo CD GitOps (submodule — own repo)
 │   ├── namespaces/            # Phase 7: prod/dev namespaces, Redis + RabbitMQ in dev
 │   ├── k8s_access/            # Grant team members kubectl access via ServiceAccount
 │   └── monitoring/            # Prometheus + Grafana + alerts
@@ -157,6 +157,8 @@ Run: `ansible-playbook playbooks/site.yml --tags wireguard,k8s_access` (or full 
 ## Argo CD GitOps (GitHub → cluster)
 
 Argo CD runs in the cluster and **pulls from GitHub** — no need to expose the K3s API.
+
+**Note:** `argocd/` is a git submodule (its own repo). See [docs/ARGOCD_SUBMODULE.md](docs/ARGOCD_SUBMODULE.md) for setup.
 
 **AppProjects:** `dev`, `prod` (each allows deploying to its namespace)
 

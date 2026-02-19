@@ -1,0 +1,9 @@
+---
+# Secrets Store CSI Driver — enables apps to mount secrets from external providers (e.g. Infisical)
+# Ref: https://secrets-store-csi-driver.sigs.k8s.io/getting-started/installation
+csi_secrets_store_version: "1.5.5"
+csi_secrets_store_namespace: kube-system
+
+# Install Infisical CSI Provider (required for SecretProviderClass with provider: infisical)
+infisical_csi_provider_enabled: true
+infisical_csi_provider_version: ""   # empty = latest

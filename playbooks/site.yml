@@ -12,6 +12,7 @@
 #   --tags metallb      MetalLB (-e metallb_force_reinstall=true to uninstall+reinstall)
 #   --tags traefik      Traefik ingress
 #   --tags infisical    Infisical
+#   --tags secrets_store_csi  Secrets Store CSI Driver + Infisical provider
 #   --tags k8s_access   Team member kubeconfig
 #   --tags namespaces   Namespaces + Redis/RabbitMQ
 #   --tags monitoring   Prometheus/Grafana (if enabled)
@@ -160,6 +161,17 @@
     ansible_port: "{{ ssh_port }}"
   roles:
     - infisical
+
+# ── Phase 5c: Secrets Store CSI Driver (node1 only) ─
+# Required for apps using SecretProviderClass (e.g. Infisical secrets). Run after Infisical.
+- name: Phase 5c — Install Secrets Store CSI Driver
+  hosts: node1
+  become: yes
+  tags: secrets_store_csi
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - secrets_store_csi
 
 # ── Phase 6: Install Monitoring (node1 only) ────────
 # Skip when monitoring_enabled: false in vars

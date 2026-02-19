@@ -1,0 +1,120 @@
+# playbooks/cluster-resource-report.yml
+# Comprehensive cluster resource report: CPU/memory usage, allocatable, pod limits.
+# Includes capacity estimate for dev/prod services per helm/base template defaults.
+#
+# Usage: ansible-playbook playbooks/cluster-resource-report.yml -i inventory/hosts.yml
+---
+- name: Cluster resource report — nodes, pods, limits, capacity
+  hosts: node1
+  become: yes
+  gather_facts: true
+  vars:
+    ansible_port: "{{ ssh_port | default(2222) }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    # Per helm/base template default (argocd/services/example/values.yaml)
+    default_service_cpu_request_m: 200       # 100m per pod
+    default_service_mem_request_mi: 200       # 200Mi per pod
+    default_service_cpu_limit_m: 400          # 200m per pod
+    default_service_mem_limit_mi: 400         # 400Mi per pod
+    dev_replicas: 1
+    prod_replicas: 3
+  tasks:
+    - name: Get nodes
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: nodes_table
+      changed_when: false
+
+    - name: Get kubectl top nodes (current usage)
+      command: kubectl top nodes 2>/dev/null || echo "Metrics unavailable (install metrics-server)"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: top_nodes
+      changed_when: false
+      failed_when: false
+
+    - name: Get kubectl top pods -A
+      command: kubectl top pods -A 2>/dev/null || echo "Metrics unavailable"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: top_pods
+      changed_when: false
+      failed_when: false
+
+    - name: Get all pods with requests and limits
+      command: >
+        kubectl get pods -A
+        -o custom-columns=NAMESPACE:.metadata.namespace,POD:.metadata.name,CPU_REQ:.spec.containers[*].resources.requests.cpu,CPU_LIM:.spec.containers[*].resources.limits.cpu,MEM_REQ:.spec.containers[*].resources.requests.memory,MEM_LIM:.spec.containers[*].resources.limits.memory
+        --no-headers
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: pods_resources
+      changed_when: false
+      failed_when: false
+
+    - name: Run capacity report script
+      script: ../scripts/resource-report.py
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+        PATH: "/usr/local/bin:/usr/bin:/bin"
+        DEFAULT_CPU_REQ_M: "{{ default_service_cpu_request_m }}"
+        DEFAULT_MEM_REQ_MI: "{{ default_service_mem_request_mi }}"
+        DEV_REPLICAS: "{{ dev_replicas }}"
+        PROD_REPLICAS: "{{ prod_replicas }}"
+      register: report_out
+      changed_when: false
+      failed_when: false
+
+    - name: Parse capacity report (JSON)
+      block:
+        - name: Load report JSON
+          set_fact:
+            report: "{{ report_out.stdout | from_json }}"
+      rescue:
+        - name: Use empty report on parse failure
+          set_fact:
+            report: {}
+
+    - name: Set capacity facts
+      set_fact:
+        total_alloc_cpu_m: "{{ report.total_alloc_cpu_m | default(0) }}"
+        total_alloc_mem_mi: "{{ report.total_alloc_mem_mi | default(0) }}"
+        total_req_cpu_m: "{{ report.total_req_cpu_m | default(0) }}"
+        total_req_mem_mi: "{{ report.total_req_mem_mi | default(0) }}"
+        avail_cpu_m: "{{ report.avail_cpu_m | default(0) }}"
+        avail_mem_mi: "{{ report.avail_mem_mi | default(0) }}"
+        services_dev_fit: "{{ report.services_dev_fit | default(0) }}"
+        services_prod_fit: "{{ report.services_prod_fit | default(0) }}"
+        bottleneck: "{{ report.bottleneck | default('N/A') }}"
+
+    - name: Set reports path
+      set_fact:
+        report_path: "{{ playbook_dir }}/../reports/cluster-resource-report-{{ ansible_date_time.epoch }}.md"
+        report_dir: "{{ playbook_dir }}/../reports"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Ensure reports directory exists (local)
+      file:
+        path: "{{ report_dir }}"
+        state: directory
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Write markdown report
+      template:
+        src: templates/cluster-resource-report.md.j2
+        dest: "{{ report_path }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - name: Report saved
+      debug:
+        msg: "Report written to {{ report_path }}"
+      delegate_to: localhost
+      run_once: true
+      become: false

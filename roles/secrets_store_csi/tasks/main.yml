@@ -1,0 +1,65 @@
+# Secrets Store CSI Driver — enables mounting secrets from Infisical/AWS/Vault into pods
+# Ref: https://secrets-store-csi-driver.sigs.k8s.io/
+---
+- name: Add Secrets Store CSI Driver Helm repo
+  command: helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Install Secrets Store CSI Driver
+  command: >
+    helm upgrade --install csi-secrets-store
+    secrets-store-csi-driver/secrets-store-csi-driver
+    --namespace {{ csi_secrets_store_namespace }}
+    --version {{ csi_secrets_store_version }}
+    --set syncSecret.enabled=true
+    --set enableSecretRotation=true
+    --set rotationPollInterval=2m
+    --wait
+    --timeout 3m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for CSI driver DaemonSet rollout
+  command: >
+    kubectl rollout status daemonset -l app.kubernetes.io/name=secrets-store-csi-driver
+    --namespace {{ csi_secrets_store_namespace }}
+    --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Add Infisical CSI Provider Helm repo
+  when: infisical_csi_provider_enabled | default(true) and (infisical_enabled | default(false))
+  command: helm repo add infisical-helm-charts https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Install Infisical CSI Provider
+  when: infisical_csi_provider_enabled | default(true) and (infisical_enabled | default(false))
+  command: >
+    helm upgrade --install infisical-csi-provider
+    infisical-helm-charts/infisical-csi-provider
+    --namespace {{ csi_secrets_store_namespace }}
+    {{ '--version ' + infisical_csi_provider_version if infisical_csi_provider_version | default('') | trim else '' }}
+    --wait
+    --timeout 3m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Infisical CSI provider pods
+  when: infisical_csi_provider_enabled | default(true) and (infisical_enabled | default(false))
+  command: >
+    kubectl wait pod -l app=infisical-csi-provider
+    --namespace {{ csi_secrets_store_namespace }}
+    --for=condition=Ready
+    --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml

@@ -1,6 +1,3 @@
-# Nested git repo (argocd is its own repo, pushed separately)
-argocd/.git/
-
 # Sensitive — kubeconfigs contain cluster tokens
 kubeconfigs/
 **/kubeconfigs/
@@ -19,6 +16,7 @@ argocd-deploy.pub
 *.retry
 .ansible/
 .vault_pass
+reports/
 
 # Python
 __pycache__/

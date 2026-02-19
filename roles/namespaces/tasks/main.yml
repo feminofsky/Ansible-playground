@@ -24,6 +24,15 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+- name: Ensure app-sa ServiceAccount in dev and prod
+  shell: |
+    kubectl create serviceaccount app-sa --namespace {{ item.namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  loop: "{{ namespace_stacks }}"
+  loop_control:
+    label: "{{ item.namespace }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
 - name: Add Bitnami Helm repo
   command: helm repo add bitnami https://charts.bitnami.com/bitnami
   environment:

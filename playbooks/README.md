@@ -15,6 +15,7 @@
 | **k3s-rotate-cert-vpn.yml** | Rotate K3s cert for VPN. |
 | **cleanup-k3s.yml** | Remove K3s from cluster. |
 | **infisical-unlock-migrations.yml** | Unlock Infisical migrations. |
+| **cluster-resource-report.yml** | Cluster CPU/memory report + capacity for dev/prod services (helm/base). |
 
 ## Usage
 
