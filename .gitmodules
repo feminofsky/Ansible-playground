@@ -1,0 +1,3 @@
+[submodule "argocd"]
+	path = argocd
+	url = git@github.com:Blumefy/gitops-services.git
