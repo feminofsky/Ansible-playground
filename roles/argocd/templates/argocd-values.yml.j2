@@ -1,0 +1,22 @@
+# Argo CD Helm values — minimal install + ApplicationSet
+# Docs: https://github.com/argoproj/argo-helm/tree/main/charts/argo-cd
+applicationSet:
+  enabled: true
+  nodeSelector:
+    kubernetes.io/hostname: "{{ argocd_node | default('node1') }}"
+
+server:
+  # Insecure: allow HTTP (for port-forward access); disable for production ingress
+  extraArgs:
+    - --insecure
+  # Pin to node1 for consistency with other stack
+  nodeSelector:
+    kubernetes.io/hostname: "{{ argocd_node | default('node1') }}"
+
+controller:
+  nodeSelector:
+    kubernetes.io/hostname: "{{ argocd_node | default('node1') }}"
+
+repoServer:
+  nodeSelector:
+    kubernetes.io/hostname: "{{ argocd_node | default('node1') }}"

@@ -1,0 +1,102 @@
+# roles/traefik/tasks/main.yml
+---
+- name: Check if Helm is installed
+  command: which helm
+  register: helm_check
+  failed_when: false
+  changed_when: false
+
+- name: Install Helm
+  shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  when: helm_check.rc != 0
+
+- name: Add Traefik Helm repo
+  command: helm repo add traefik https://traefik.github.io/charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create Traefik namespace
+  shell: kubectl create namespace {{ traefik_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template Traefik values
+  template:
+    src: traefik-values.yml.j2
+    dest: /tmp/traefik-values.yml
+
+- name: Install or upgrade Traefik
+  command: >
+    helm upgrade --install traefik traefik/traefik
+    --namespace {{ traefik_namespace }}
+    --values /tmp/traefik-values.yml
+    --version {{ traefik_version }}
+    --wait
+    --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Traefik pods to be ready
+  command: >
+    kubectl wait --namespace {{ traefik_namespace }}
+    --for=condition=ready pod
+    --selector=app.kubernetes.io/name=traefik
+    --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Apply security headers middleware
+  template:
+    src: middleware-security.yml.j2
+    dest: /tmp/middleware-security.yml
+
+- name: Apply rate limit middleware
+  template:
+    src: middleware-ratelimit.yml.j2
+    dest: /tmp/middleware-ratelimit.yml
+
+- name: Apply Traefik middlewares
+  command: kubectl apply -f /tmp/middleware-{{ item }}.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  loop:
+    - security
+    - ratelimit
+
+- name: Create namespaces for IngressRoutes (prod, dev, etc.)
+  shell: kubectl create namespace {{ item }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  loop: "{{ subdomains | map(attribute='namespace') | unique | list }}"
+
+- name: Apply IngressRoutes for all subdomains
+  template:
+    src: ingressroute.yml.j2
+    dest: /tmp/ingressroute-{{ item.name }}.yml
+  loop: "{{ subdomains }}"
+
+- name: Apply IngressRoutes to cluster
+  command: kubectl apply -f /tmp/ingressroute-{{ item.name }}.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  loop: "{{ subdomains }}"
+
+- name: Get Traefik external IP
+  command: >
+    kubectl get svc traefik -n {{ traefik_namespace }}
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: traefik_ip
+  changed_when: false
+
+- name: Show Traefik external IP
+  debug:
+    msg: "Traefik is available at: {{ traefik_ip.stdout }}"

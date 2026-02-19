@@ -1,0 +1,127 @@
+---
+{{- range $name, $app := .Values.app }}
+{{- if hasKey $app "service" }}
+{{- with $ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}-deployment
+  labels:
+    app: {{ $name }}
+spec:
+  replicas: {{ $app.autoscaling.minReplicaCount }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum | quote }}
+      labels:
+        app: {{ $name }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: app-sa
+      
+      containers:
+        {{- if has "redis" $app.side }}
+        - name: redis
+          image: {{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command: [ "/bin/bash", "-c" , "redis-cli ping | grep PONG" ]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+        {{- end }}
+        {{- if has "memcached" $app.side }}
+        - name: memcached
+          image: "{{ .Values.memcached.image.repository }}:{{ .Values.memcached.image.tag }}"
+          imagePullPolicy: {{ .Values.memcached.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.memcached.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: 11211
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            tcpSocket:
+              port: 11211
+            initialDelaySeconds: 30
+            timeoutSeconds: 5
+        {{- end }}
+        - name: {{ $name }}
+          image: "{{ .Values.image.repo }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if hasKey $app "web" }}
+          {{- else if hasKey $app "command" }}
+          command: {{ $app.command | toJson }}
+          {{- else }}
+          command: ["node", "--experimental-modules", "--es-module-specifier-resolution=node", "dist/index.js"]
+          {{- end }}
+          ports:
+            - containerPort: {{ $app.service.port }}
+          env:
+            - name: AWS_REGION
+              value: "{{ .Values.aws.region }}"
+            - name: AWS_ACCESS_KEY_ID
+              value: "{{ .Values.aws.accessKeyId }}"
+            - name: AWS_SECRET_ACCESS_KEY
+              value: "{{ .Values.aws.secretAccessKey }}"
+          envFrom:
+            - configMapRef:
+                name: {{ $name }}-configmap
+            - secretRef:
+                name: {{ $name }}-secrets
+          resources:
+            {{- toYaml $app.resources | nindent 12 }}
+          {{- if hasKey $app "privileged" }}
+          securityContext:
+            privileged: {{ $app.privileged }}
+          {{- end }}
+          {{- if hasKey $app "health" }}
+          livenessProbe:
+            httpGet:
+              path: {{ $app.health }}
+              port: {{ $app.service.port }}
+              {{- if (eq (int $app.service.port) 443) }}
+              scheme: HTTPS
+              {{- end }}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: {{ $app.health }}
+              port: {{ $app.service.port }}
+              {{- if (eq (int $app.service.port) 443) }}
+              scheme: HTTPS
+              {{- end }}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- end }}
+          volumeMounts:
+            - name: secrets-store-inline
+              mountPath: "/mnt/secrets-store"
+              readOnly: true
+      volumes:
+      - name: secrets-store-inline
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "{{ $name }}-spc"
+---
+{{- end }}
+{{- end }}
+{{- end }}

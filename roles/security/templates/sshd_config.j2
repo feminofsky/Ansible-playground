@@ -1,0 +1,49 @@
+# roles/security/templates/sshd_config.j2
+# Managed by Ansible - do not edit manually
+
+# Network
+Port {{ ssh_port }}
+AddressFamily inet
+ListenAddress 0.0.0.0
+
+# Authentication
+PermitRootLogin no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PermitEmptyPasswords no
+PermitUserEnvironment no
+
+# Restrict users
+AllowUsers {{ deploy_user }}
+MaxAuthTries 3
+MaxSessions 5
+LoginGraceTime 30
+
+# Disable unused features
+X11Forwarding no
+AllowAgentForwarding no
+# TCP forwarding allowed for kubectl/OpenLens tunnel: ssh -L 6443:127.0.0.1:6443
+AllowTcpForwarding yes
+PrintMotd no
+UseDNS no
+
+# Timeouts
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# Logging
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+# Use strong ciphers only
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com
+MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com
+
+# Accept locale-related environment variables
+AcceptEnv LANG LC_*
+
+# Subsystems
+Subsystem sftp /usr/lib/openssh/sftp-server

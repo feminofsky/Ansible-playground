@@ -1,0 +1,98 @@
+# playbooks/test-cross-node-pods.yml
+# Tests that pods on different nodes can communicate (DNS + HTTP).
+# Deploys: server on node1, client on node2. Client resolves server hostname and curls it.
+#
+# Usage: ansible-playbook playbooks/test-cross-node-pods.yml -i inventory/hosts.yml
+# Requires: K3s cluster running, kubectl on node1
+---
+- name: Test cross-node pod communication
+  hosts: node1
+  become: yes
+  gather_facts: false
+  vars:
+    ansible_port: "{{ ssh_port | default(2222) }}"
+    test_namespace: cross-node-test
+    server_name: echo-server
+    client_name: cross-node-client
+  tasks:
+    - name: Remove leftover test resources from previous run
+      command: kubectl delete namespace {{ test_namespace }} --ignore-not-found=true --wait=true
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: true
+
+    - name: Create test namespace
+      shell: >
+        kubectl create namespace {{ test_namespace }}
+        --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: true
+
+    - name: Deploy echo server on node1
+      template:
+        src: templates/cross-node-echo-server.yml.j2
+        dest: /tmp/cross-node-echo-server.yml
+
+    - name: Apply echo server manifest
+      command: kubectl apply -f /tmp/cross-node-echo-server.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait for echo server pod on node1
+      command: >
+        kubectl wait pod -l app={{ server_name }}
+        -n {{ test_namespace }}
+        --for=condition=Ready
+        --timeout=60s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Deploy client job on node2 (tests DNS + HTTP from node2 to node1)
+      template:
+        src: templates/cross-node-client-job.yml.j2
+        dest: /tmp/cross-node-client-job.yml
+
+    - name: Apply client job
+      command: kubectl apply -f /tmp/cross-node-client-job.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait for client job to complete
+      command: >
+        kubectl wait job/{{ client_name }}
+        -n {{ test_namespace }}
+        --for=condition=complete
+        --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Get client job logs
+      command: kubectl logs job/{{ client_name }} -n {{ test_namespace }}
+      register: client_logs
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Show test results
+      debug:
+        msg: "{{ client_logs.stdout_lines }}"
+
+    - name: Fail if HTTP test did not return ok
+      assert:
+        that: "'ok' in client_logs.stdout"
+        fail_msg: |
+          Cross-node HTTP test FAILED. Client on node2 could not reach server on node1.
+          Logs: {{ client_logs.stdout }}
+          This indicates DNS or pod-network issues between nodes (e.g. EAI_AGAIN over VPN/Flannel).
+        success_msg: "Cross-node pod communication OK: client on node2 reached server on node1."
+
+    - name: Cleanup test resources
+      block:
+        - name: Delete test namespace
+          command: kubectl delete namespace {{ test_namespace }} --ignore-not-found=true --wait=true
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          changed_when: true
+      when: cleanup_test | default(true) | bool

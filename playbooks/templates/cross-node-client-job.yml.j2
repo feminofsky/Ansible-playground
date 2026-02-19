@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ client_name }}
+  namespace: {{ test_namespace }}
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: node2
+      restartPolicy: Never
+      containers:
+        - name: client
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "=== DNS (FQDN) ==="
+              nslookup {{ server_name }}.{{ test_namespace }}.svc.cluster.local || echo "DNS FAILED"
+              echo "=== HTTP (FQDN) ==="
+              wget -qO- --timeout=5 http://{{ server_name }}.{{ test_namespace }}.svc.cluster.local:8080 || echo "HTTP FAILED"
+              echo "=== DNS (short) ==="
+              nslookup {{ server_name }} || echo "DNS FAILED"
+              echo "=== HTTP (short) ==="
+              wget -qO- --timeout=5 http://{{ server_name }}:8080 || echo "HTTP FAILED"

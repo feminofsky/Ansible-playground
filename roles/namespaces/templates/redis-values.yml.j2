@@ -1,0 +1,21 @@
+# roles/namespaces/templates/redis-values.yml.j2
+# Redis — standalone (single master)
+# Bitnami moved images to bitnamilegacy/ (docker.io/bitnamilegacy/redis)
+---
+image:
+  registry: docker.io
+  repository: bitnamilegacy/redis
+architecture: standalone
+auth:
+  enabled: true
+  password: "{{ redis_password }}"
+master:
+  persistence:
+    enabled: true
+    size: {{ redis_storage }}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi

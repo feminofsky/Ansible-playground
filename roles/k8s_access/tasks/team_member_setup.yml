@@ -1,0 +1,21 @@
+---
+- name: Create ServiceAccount {{ item.name }}
+  shell: >
+    kubectl create serviceaccount {{ item.name }}
+    --namespace {{ k8s_access_namespace }}
+    --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Create ClusterRoleBinding {{ item.name }}
+  template:
+    src: clusterrolebinding.yml.j2
+    dest: "/tmp/crb-{{ item.name }}.yml"
+  vars:
+    sa_name: "{{ item.name }}"
+    role: "{{ item.role | default('cluster-admin') }}"
+
+- name: Apply ClusterRoleBinding {{ item.name }}
+  command: kubectl apply -f /tmp/crb-{{ item.name }}.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml

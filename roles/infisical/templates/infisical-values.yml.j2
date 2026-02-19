@@ -1,0 +1,56 @@
+# roles/infisical/templates/infisical-values.yml.j2
+# Infisical standalone — no ingress, access via kubectl port-forward
+#
+# nodeSelector: With wireguard_full_vpn, pods on node2 often fail DNS (getaddrinfo EAI_AGAIN)
+# when resolving "postgresql" — cross-node CoreDNS over VPN/Flannel is flaky in K3s.
+# Pinning the full stack to node1 avoids cross-node pod traffic entirely.
+---
+infisical:
+  enabled: true
+  replicaCount: {{ infisical_replicas }}
+  image:
+    repository: infisical/infisical
+    tag: "{{ infisical_version }}"
+    pullPolicy: IfNotPresent
+  kubeSecretRef: infisical-secrets
+  service:
+    type: ClusterIP
+  nodeSelector:
+    kubernetes.io/hostname: {{ infisical_node | default('node1') }}
+  resources:
+    limits:
+      memory: 1000Mi
+    requests:
+      cpu: 350m
+  # Infisical can take 60–90s to start (DB migrations, key setup); relax probes to avoid false restarts
+  readinessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 6
+  livenessProbe:
+    initialDelaySeconds: 90
+    periodSeconds: 15
+    failureThreshold: 6
+
+# Never expose to domain — access only via kubectl port-forward
+# ingress.nginx.enabled: false disables the bundled ingress-nginx subchart (avoids extra LoadBalancer)
+ingress:
+  enabled: false
+  nginx:
+    enabled: false
+
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      size: {{ infisical_postgres_size }}
+    nodeSelector:
+      kubernetes.io/hostname: {{ infisical_node | default('node1') }}
+
+redis:
+  enabled: true
+  master:
+    persistence:
+      size: {{ infisical_redis_size }}
+    nodeSelector:
+      kubernetes.io/hostname: {{ infisical_node | default('node1') }}

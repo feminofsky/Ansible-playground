@@ -1,0 +1,6 @@
+---
+k8s_access_namespace: k8s-access
+k8s_token_duration: 8760h
+# WireGuard: use node1 VPN IP. Else: node1 public IP
+k8s_api_server: "https://{{ wireguard_node1_ip if (wireguard_enabled | default(false)) else node1_ip }}:{{ k3s_api_port }}"
+k8s_kubeconfig_output_dir: kubeconfigs

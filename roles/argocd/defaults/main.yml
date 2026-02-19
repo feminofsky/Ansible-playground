@@ -1,0 +1,29 @@
+---
+argocd_namespace: argocd
+argocd_version: "8.2.1"    # Helm chart version (argo/argo-cd)
+argocd_node: node1
+
+# AppProjects: dev, prod — each allows deploying to its namespace
+argocd_projects: [dev, prod]
+
+# Git repo for ApplicationSet (watches applications/*.yaml)
+argocd_gitops_repo_url: ""
+argocd_gitops_repo_revision: main
+
+# Legacy: manual applications when not using ApplicationSet
+# For private repos use ONE of:
+#   vault_argocd_repo_ssh_key: |   (in vault.yml — key content)
+#   argocd_repo_ssh_key_file: "argocd-deploy"   (path to key file)
+#   Generate: ssh-keygen -t ed25519 -C "argocd" -f argocd-deploy -N ""
+#   Add argocd-deploy.pub as deploy key in GitHub repo (read-only)
+argocd_repo_ssh_key_file: ""   # e.g. "argocd-deploy" when key is in project root
+argocd_applications: []
+# Example:
+# argocd_applications:
+#   - name: my-app
+#     repo: https://github.com/org/repo.git
+#     # Or for private: repo: git@github.com:org/repo.git
+#     path: manifests
+#     branch: main
+#     dest_namespace: prod
+#     auto_sync: true

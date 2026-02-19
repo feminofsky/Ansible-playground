@@ -1,0 +1,22 @@
+---
+{{- range $name, $app := .Values.app }}
+{{- if hasKey $app "service" }}
+{{- with $ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-svc
+spec:
+  selector:
+    app: {{ $name }}
+  ports:
+    - protocol: TCP
+      port: {{ $app.service.port }}
+      {{- if hasKey $app.service "targetPort" }}
+      targetPort: {{ $app.service.targetPort }}
+      {{- end }}
+      name: tcp-{{ $name }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

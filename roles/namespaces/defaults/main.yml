@@ -1,0 +1,7 @@
+---
+prod_namespace: prod
+dev_namespace: dev
+dev_redis_version: "19.0.0"
+dev_rabbitmq_version: "14.0.0"
+dev_redis_storage: 1Gi
+dev_rabbitmq_storage: 1Gi

@@ -1,0 +1,4 @@
+---
+# Set to true to uninstall K3s on all nodes and reinstall fresh (broken cluster recovery)
+# Usage: ansible-playbook site.yml -e k3s_force_reinstall=true
+k3s_force_reinstall: false

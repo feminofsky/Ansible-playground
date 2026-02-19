@@ -1,0 +1,136 @@
+# roles/common/tasks/main.yml
+---
+- name: Set hostname
+  hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Upgrade all packages
+  apt:
+    upgrade: dist
+    autoremove: yes
+  register: apt_upgrade
+
+- name: Install essential packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - vim
+      - htop
+      - ufw
+      - fail2ban
+      - unattended-upgrades
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+      - python3-pip
+      - jq
+      - net-tools
+    state: present
+
+- name: Configure unattended upgrades
+  copy:
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+      Unattended-Upgrade::MinimalSteps "true";
+      Unattended-Upgrade::Mail "{{ admin_email }}";
+      Unattended-Upgrade::Remove-Unused-Packages "true";
+      Unattended-Upgrade::Automatic-Reboot "false";
+
+- name: Enable unattended upgrades timer
+  systemd:
+    name: unattended-upgrades
+    enabled: yes
+    state: started
+
+- name: Create deploy user
+  user:
+    name: "{{ deploy_user }}"
+    shell: /bin/bash
+    groups: sudo
+    append: yes
+    create_home: yes
+    state: present
+
+- name: Set up SSH authorized key for deploy user
+  authorized_key:
+    user: "{{ deploy_user }}"
+    key: "{{ ssh_public_key }}"
+    state: present
+
+- name: Allow deploy user passwordless sudo
+  lineinfile:
+    path: /etc/sudoers.d/{{ deploy_user }}
+    line: "{{ deploy_user }} ALL=(ALL) NOPASSWD:ALL"
+    create: yes
+    validate: visudo -cf %s
+
+- name: Configure /etc/hosts with cluster nodes
+  blockinfile:
+    path: /etc/hosts
+    block: |
+      {{ node1_ip }}  node1
+      {{ node2_ip }}  node2
+    marker: "# {mark} K3s CLUSTER NODES"
+
+- name: Disable swap immediately
+  command: swapoff -a
+  when: ansible_facts['swaptotal_mb'] | default(0) > 0
+
+- name: Disable swap in fstab permanently
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\s+swap\s+.*)$'
+    replace: '# \1'
+
+- name: Load required kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Persist kernel modules on boot
+  copy:
+    dest: /etc/modules-load.d/k3s.conf
+    content: |
+      overlay
+      br_netfilter
+
+- name: Set kernel parameters for Kubernetes
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/k3s.conf
+    reload: yes
+  loop:
+    - { name: net.bridge.bridge-nf-call-iptables,  value: "1" }
+    - { name: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+    - { name: net.ipv4.ip_forward,                 value: "1" }
+    - { name: vm.swappiness,                       value: "0" }
+    - { name: fs.inotify.max_user_watches,         value: "524288" }
+    - { name: fs.inotify.max_user_instances,       value: "512" }
+
+- name: Secure shared memory
+  mount:
+    path: /run/shm
+    src: tmpfs
+    fstype: tmpfs
+    opts: ro,noexec,nosuid
+    state: present
+
+- name: Reboot if kernel updates were applied
+  reboot:
+    reboot_timeout: 120
+  when: apt_upgrade.changed

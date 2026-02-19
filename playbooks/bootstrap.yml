@@ -1,0 +1,29 @@
+# playbooks/bootstrap.yml
+# First-time setup: creates deploy user and hardens SSH.
+# Run when servers are fresh and only root+password auth is available.
+#
+# Usage (from project root):
+#   ansible-playbook playbooks/bootstrap.yml -i inventory/hosts.yml -k
+#
+# You'll be prompted for the root SSH password (from Contabo email).
+# After this completes, update inventory to use deploy user and port 2222.
+---
+- name: Bootstrap — Create user and harden (password auth)
+  hosts: control_plane
+  become: yes
+  serial: 1
+  vars:
+    # Force password auth — your SSH key isn't on the server yet
+    ansible_ssh_common_args: '-o PreferredAuthentications=password -o PubkeyAuthentication=no'
+  roles:
+    - common
+
+- name: Bootstrap — Security hardening
+  hosts: control_plane
+  become: yes
+  serial: 1
+  vars:
+    ansible_port: 22
+    ansible_ssh_common_args: '-o PreferredAuthentications=password -o PubkeyAuthentication=no'
+  roles:
+    - security

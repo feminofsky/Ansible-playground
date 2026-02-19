@@ -1,0 +1,33 @@
+# Job to release knex migration lock (knex migrate:unlock equivalent)
+# Bitnami PostgreSQL secret uses 'password' (or 'postgres-password'); override via pg_password_key
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: infisical-migrate-unlock
+  namespace: "{{ infisical_namespace }}"
+spec:
+  ttlSecondsAfterFinished: 60
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/hostname: "{{ infisical_node | default('node1') }}"
+      containers:
+        - name: unlock
+          image: postgres:16-alpine
+          command:
+            - psql
+            - -h
+            - "{{ pg_service }}"
+            - -U
+            - postgres
+            - -d
+            - "{{ pg_database }}"
+            - -c
+            - "UPDATE infisical_migrations_lock SET is_locked = 0;"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: "{{ pg_secret | trim }}"
+                  key: "{{ (pg_password_key | default('password')) | trim }}"

@@ -1,0 +1,45 @@
+# roles/k8s_access/tasks/main.yml
+# Grant team members Kubernetes cluster access via ServiceAccount + kubeconfig
+---
+- name: Ensure kubeconfig output directory exists
+  file:
+    path: "{{ k8s_kubeconfig_output_dir | default('kubeconfigs') }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+
+- name: Create k8s-access namespace
+  shell: kubectl create namespace {{ k8s_access_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Create ServiceAccount and ClusterRoleBinding for team members
+  include_tasks: team_member_setup.yml
+  loop: "{{ k8s_team_members }}"
+  loop_control:
+    loop_var: item
+
+- name: Generate kubeconfig for each team member
+  include_tasks: team_member_kubeconfig.yml
+  loop: "{{ k8s_team_members }}"
+  loop_control:
+    loop_var: item
+
+- name: Show team member access info (WireGuard)
+  debug:
+    msg: |
+      {{ item.name }}:
+        kubeconfig: {{ k8s_kubeconfig_output_dir | default('kubeconfigs') }}/{{ item.name }}-kubeconfig.yml
+        wireguard: {{ wireguard_configs_output_dir | default('wireguard-configs') }}/wg-{{ item.name }}.conf
+      API: {{ k8s_api_server }} — connect via WireGuard first, then kubectl.
+  loop: "{{ k8s_team_members }}"
+  when: wireguard_enabled | default(false)
+
+- name: Show team member access info (no WireGuard)
+  debug:
+    msg: |
+      {{ item.name }} kubeconfig: {{ k8s_kubeconfig_output_dir | default('kubeconfigs') }}/{{ item.name }}-kubeconfig.yml
+      API: {{ k8s_api_server }} — add their IP to k3s_api_allowed_ips, re-run security role.
+  loop: "{{ k8s_team_members }}"
+  when: not (wireguard_enabled | default(false))

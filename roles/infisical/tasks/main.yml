@@ -1,0 +1,101 @@
+# roles/infisical/tasks/main.yml
+---
+- name: Add Infisical Helm repo
+  command: helm repo add infisical-helm-charts https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create Infisical namespace
+  shell: kubectl create namespace {{ infisical_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Ensure vault secrets for Infisical
+  assert:
+    that:
+      - vault_infisical_auth_secret is defined
+      - vault_infisical_encryption_key is defined
+    fail_msg: >-
+      vault_infisical_auth_secret and vault_infisical_encryption_key must be set in vault.yml.
+      Generate with: openssl rand -base64 32 (auth) and openssl rand -hex 16 (encryption).
+      Edit: ansible-vault edit inventory/group_vars/all/vault.yml
+
+- name: Template Infisical Kubernetes secrets manifest
+  template:
+    src: infisical-secrets.yml.j2
+    dest: /tmp/infisical-secrets.yml
+
+- name: Apply Infisical secrets to cluster
+  command: kubectl apply -f /tmp/infisical-secrets.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Remove secrets manifest from disk
+  file:
+    path: /tmp/infisical-secrets.yml
+    state: absent
+
+- name: Template Infisical Helm values
+  template:
+    src: infisical-values.yml.j2
+    dest: /tmp/infisical-values.yml
+
+# Don't use --wait: on small VPS, pulling PG/Redis/Infisical images can exceed 10m
+# Helm returns when resources are created; we wait for readiness separately
+- name: Install or upgrade Infisical
+  command: >
+    helm upgrade --install infisical infisical-helm-charts/infisical-standalone
+    --namespace {{ infisical_namespace }}
+    --values /tmp/infisical-values.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# Force Infisical pod to reschedule with new nodeSelector (avoids cross-node DNS EAI_AGAIN)
+- name: Delete Infisical pod to reschedule on correct node
+  command: kubectl delete pod -n {{ infisical_namespace }} -l component=infisical --ignore-not-found=true
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: true
+
+# Wait for core components only (not ingress-nginx, which we disable)
+- name: Wait for PostgreSQL
+  command: >
+    kubectl wait pod -l app.kubernetes.io/name=postgresql
+    --namespace {{ infisical_namespace }}
+    --for=condition=Ready
+    --timeout={{ infisical_wait_timeout | default(900) }}s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Redis
+  command: >
+    kubectl wait pod -l app.kubernetes.io/name=redis
+    --namespace {{ infisical_namespace }}
+    --for=condition=Ready
+    --timeout={{ infisical_wait_timeout | default(900) }}s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Infisical app
+  command: >
+    kubectl wait pod -l component=infisical
+    --namespace {{ infisical_namespace }}
+    --for=condition=Ready
+    --timeout={{ infisical_wait_timeout | default(900) }}s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Show Infisical access info
+  debug:
+    msg: |
+      Infisical is running (not exposed via Traefik).
+      Access via: kubectl port-forward -n {{ infisical_namespace }} svc/infisical 8080:8080
+      Then open: http://localhost:8080
+      First user to sign up becomes instance admin.

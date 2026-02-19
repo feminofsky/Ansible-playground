@@ -1,0 +1,14 @@
+# WireGuard client config for {{ client_name }} - managed by Ansible
+# Install: apt install wireguard / brew install wireguard-tools
+# Use: wg-quick up {{ wireguard_interface }}
+
+[Interface]
+Address = {{ client_ip }}/24
+PrivateKey = {{ client_private_key }}
+# No DNS: node1 has no recursive resolver; use your normal DNS for internet
+
+[Peer]
+PublicKey = {{ wg_server_public_key }}
+Endpoint = {{ node1_ip }}:{{ wireguard_port }}
+AllowedIPs = {{ wireguard_subnet }}
+PersistentKeepalive = 25

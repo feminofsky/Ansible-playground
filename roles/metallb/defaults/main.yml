@@ -1,0 +1,4 @@
+---
+# Set to true to uninstall MetalLB completely and reinstall fresh
+# Usage: ansible-playbook site.yml --tags metallb -e metallb_force_reinstall=true
+metallb_force_reinstall: false

@@ -1,0 +1,12 @@
+---
+infisical_namespace: infisical
+infisical_version: "v0.151.0"
+infisical_replicas: 1
+infisical_postgres_size: 8Gi
+infisical_redis_size: 8Gi
+# Timeout in seconds for waiting on pods (PG+Redis+Infisical); first pull can be slow
+infisical_wait_timeout: 900
+# Used for redirects/cookies when accessing via port-forward; localhost is fine for internal-only
+infisical_site_url: "http://localhost"
+# Node to schedule Infisical stack (PG+Redis+app); use node1 to keep all on same node
+infisical_node: node1

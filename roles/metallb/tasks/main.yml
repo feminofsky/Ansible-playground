@@ -1,0 +1,116 @@
+# roles/metallb/tasks/main.yml
+---
+- name: Uninstall MetalLB (force reinstall)
+  block:
+    - name: Delete MetalLB config (IPAddressPool, L2Advertisement)
+      command: "kubectl delete ipaddresspool contabo-pool l2advertisement contabo-l2 -n metallb-system --ignore-not-found --timeout=30s"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: config_del
+      failed_when: false
+
+    - name: Delete MetalLB manifest (pods, services, etc.)
+      command: >
+        kubectl delete -f
+        https://raw.githubusercontent.com/metallb/metallb/{{ metallb_version }}/config/manifests/metallb-native.yaml
+        --ignore-not-found --timeout=60s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: metallb_uninstall
+      failed_when: false
+      changed_when: metallb_uninstall.rc == 0
+
+    - name: Delete metallb-system namespace
+      command: kubectl delete namespace metallb-system --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: ns_delete
+      failed_when: false
+      changed_when: ns_delete.rc == 0
+
+    - name: Delete MetalLB CRDs
+      shell: |
+        for crd in $(kubectl get crd -o name 2>/dev/null | grep metallb.io); do
+          kubectl delete "$crd" --timeout=30s 2>/dev/null || true
+        done
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: crd_delete
+      failed_when: false
+      changed_when: crd_delete.rc == 0
+
+    - name: Delete MetalLB webhook if leftover
+      command: kubectl delete validatingwebhookconfiguration metallb-webhook-configuration
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: webhook_del
+      failed_when: false
+
+    - name: Wait for namespace to be gone
+      command: kubectl get namespace metallb-system
+      register: ns_check
+      until: ns_check.rc != 0
+      retries: 12
+      delay: 5
+      failed_when: false
+  when: metallb_force_reinstall | default(false) | bool
+
+- name: Apply MetalLB manifests
+  command: >
+    kubectl apply -f
+    https://raw.githubusercontent.com/metallb/metallb/{{ metallb_version }}/config/manifests/metallb-native.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: metallb_apply
+
+- name: Wait for MetalLB pods to be ready
+  command: >
+    kubectl wait --namespace metallb-system
+    --for=condition=ready pod
+    --selector=app=metallb
+    --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for MetalLB controller (webhook) to be ready
+  command: >
+    kubectl wait --namespace metallb-system
+    --for=condition=available deployment/controller
+    --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Remove MetalLB webhook (unreachable in some setups; config applies without validation)
+  command: kubectl delete validatingwebhookconfiguration metallb-webhook-configuration
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: webhook_delete
+  failed_when: false
+  changed_when: webhook_delete.rc == 0
+
+- name: Apply MetalLB IP address pool
+  template:
+    src: metallb-config.yml.j2
+    dest: /tmp/metallb-config.yml
+
+- name: Apply MetalLB config to cluster (retry for webhook readiness)
+  command: kubectl apply -f /tmp/metallb-config.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: metallb_config_apply
+  retries: 3
+  delay: 15
+  until: metallb_config_apply.rc == 0
+
+- name: Verify MetalLB IP pool
+  command: kubectl get ipaddresspool -n metallb-system
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: metallb_pool
+  changed_when: false
+
+- name: Show MetalLB status
+  debug:
+    var: metallb_pool.stdout_lines

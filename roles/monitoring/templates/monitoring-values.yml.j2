@@ -1,0 +1,29 @@
+# roles/monitoring/templates/monitoring-values.yml.j2
+grafana:
+  enabled: true
+  adminPassword: "{{ grafana_admin_password }}"
+  persistence:
+    enabled: true
+    size: 5Gi
+  ingress:
+    enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 20Gi
+
+alertmanager:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+kube-state-metrics:
+  enabled: true

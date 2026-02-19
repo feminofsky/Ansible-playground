@@ -1,0 +1,118 @@
+# playbooks/cleanup-k3s.yml
+# Fully removes K3s from all control plane nodes. Use for a fresh start.
+# DESTRUCTIVE: All cluster data, PVCs, and workloads are lost.
+#
+# Order: node2 first, then node1 (secondary before primary).
+# After: Run bootstrap.yml or site.yml to recreate the cluster.
+#
+# Usage: ansible-playbook playbooks/cleanup-k3s.yml -i inventory/hosts.yml
+---
+- name: Remove K3s from node2
+  hosts: node2
+  become: true
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Check if K3s uninstall script exists
+      stat:
+        path: /usr/local/bin/k3s-uninstall.sh
+      register: k3s_uninstall_script
+
+    - name: Uninstall K3s (server)
+      command: /usr/local/bin/k3s-uninstall.sh
+      register: uninstall
+      changed_when: uninstall.rc == 0
+      failed_when: false
+      when: k3s_uninstall_script.stat.exists
+
+    - name: Remove etcdctl if we installed it
+      file:
+        path: /usr/local/bin/etcdctl
+        state: absent
+      ignore_errors: true
+
+    - name: Remove etcd tarball
+      file:
+        path: /tmp/etcd-v3.5.15-linux-amd64
+        state: absent
+      ignore_errors: true
+
+    - name: Remove deploy user kubeconfig
+      file:
+        path: "/home/{{ deploy_user }}/.kube/config"
+        state: absent
+      ignore_errors: true
+
+- name: Remove K3s from node1
+  hosts: node1
+  become: true
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Check if etcd backup timer exists
+      stat:
+        path: /etc/systemd/system/k3s-etcd-backup.timer
+      register: etcd_timer
+
+    - name: Stop and disable etcd backup timer
+      systemd:
+        name: k3s-etcd-backup.timer
+        state: stopped
+        enabled: false
+      when: etcd_timer.stat.exists
+
+    - name: Check if K3s uninstall script exists
+      stat:
+        path: /usr/local/bin/k3s-uninstall.sh
+      register: k3s_uninstall_script
+
+    - name: Uninstall K3s (server)
+      command: /usr/local/bin/k3s-uninstall.sh
+      register: uninstall
+      changed_when: uninstall.rc == 0
+      failed_when: false
+      when: k3s_uninstall_script.stat.exists
+
+    - name: Remove etcdctl if we installed it
+      file:
+        path: /usr/local/bin/etcdctl
+        state: absent
+      ignore_errors: true
+
+    - name: Remove etcd tarball
+      file:
+        path: /tmp/etcd-v3.5.15-linux-amd64
+        state: absent
+      ignore_errors: true
+
+    - name: Remove deploy user kubeconfig
+      file:
+        path: "/home/{{ deploy_user }}/.kube/config"
+        state: absent
+      ignore_errors: true
+
+    - name: Remove etcd backup script and units
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/k3s-etcd-backup.sh
+        - /etc/systemd/system/k3s-etcd-backup.service
+        - /etc/systemd/system/k3s-etcd-backup.timer
+      ignore_errors: true
+
+    - name: Daemon reload
+      systemd:
+        daemon_reload: true
+
+- name: Cleanup complete
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Next steps
+      debug:
+        msg: |
+          K3s removed from all nodes. To recreate:
+            1. Ensure WireGuard is up on both nodes (wireguard_enabled: true)
+            2. ansible-playbook playbooks/site.yml -i inventory/hosts.yml
+            Or bootstrap fresh: playbooks/bootstrap.yml then site.yml

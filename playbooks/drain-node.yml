@@ -1,0 +1,22 @@
+# playbooks/drain-node.yml
+# Usage: ansible-playbook playbooks/drain-node.yml -i inventory/hosts.yml -e "target_node=node3"
+---
+- name: Drain a node safely
+  hosts: node1
+  become: yes
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Drain {{ target_node }}
+      command: kubectl drain {{ target_node }} --ignore-daemonsets --delete-emptydir-data
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Show node status
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: result
+
+    - debug:
+        var: result.stdout_lines

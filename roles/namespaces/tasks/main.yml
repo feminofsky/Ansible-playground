@@ -1,0 +1,107 @@
+# roles/namespaces/tasks/main.yml
+# Phase 7: Create prod/dev namespaces; install Redis + RabbitMQ in dev and prod
+---
+- name: Ensure vault secrets for dev and prod stacks
+  assert:
+    that:
+      - vault_dev_redis_password is defined
+      - vault_dev_rabbitmq_user is defined
+      - vault_dev_rabbitmq_password is defined
+      - vault_prod_redis_password is defined
+      - vault_prod_rabbitmq_user is defined
+      - vault_prod_rabbitmq_password is defined
+    fail_msg: >-
+      Add to vault.yml: vault_{dev,prod}_redis_password, vault_{dev,prod}_rabbitmq_user, vault_{dev,prod}_rabbitmq_password
+      Edit: ansible-vault edit inventory/group_vars/all/vault.yml
+
+- name: Create prod namespace
+  shell: kubectl create namespace {{ prod_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Create dev namespace
+  shell: kubectl create namespace {{ dev_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Add Bitnami Helm repo
+  command: helm repo add bitnami https://charts.bitnami.com/bitnami
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+# Redis in dev and prod
+- name: Template Redis values
+  template:
+    src: redis-values.yml.j2
+    dest: "/tmp/redis-{{ item.name }}-values.yml"
+  loop: "{{ namespace_stacks }}"
+  vars:
+    redis_password: "{{ item.redis_password }}"
+    redis_storage: "{{ item.redis_storage }}"
+
+- name: Install Redis
+  command: >
+    helm upgrade --install redis bitnami/redis
+    --namespace {{ item.namespace }}
+    --values /tmp/redis-{{ item.name }}-values.yml
+    --version {{ item.redis_version }}
+  loop: "{{ namespace_stacks }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# RabbitMQ in dev and prod
+- name: Template RabbitMQ values
+  template:
+    src: rabbitmq-values.yml.j2
+    dest: "/tmp/rabbitmq-{{ item.name }}-values.yml"
+  loop: "{{ namespace_stacks }}"
+  vars:
+    rabbitmq_user: "{{ item.rabbitmq_user }}"
+    rabbitmq_password: "{{ item.rabbitmq_password }}"
+    rabbitmq_storage: "{{ item.rabbitmq_storage }}"
+
+- name: Install RabbitMQ
+  command: >
+    helm upgrade --install rabbitmq bitnami/rabbitmq
+    --namespace {{ item.namespace }}
+    --values /tmp/rabbitmq-{{ item.name }}-values.yml
+    --version {{ item.rabbitmq_version }}
+  loop: "{{ namespace_stacks }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Redis pods
+  command: >
+    kubectl wait pod -l app.kubernetes.io/name=redis
+    --namespace {{ item.namespace }}
+    --for=condition=Ready
+    --timeout=300s
+  loop: "{{ namespace_stacks }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for RabbitMQ pods
+  command: >
+    kubectl wait pod -l app.kubernetes.io/name=rabbitmq
+    --namespace {{ item.namespace }}
+    --for=condition=Ready
+    --timeout=300s
+  loop: "{{ namespace_stacks }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Show stack info
+  debug:
+    msg: |
+      {{ item.namespace }} namespace:
+      - Redis: kubectl port-forward -n {{ item.namespace }} svc/redis-master 6379:6379
+      - RabbitMQ: kubectl port-forward -n {{ item.namespace }} svc/rabbitmq 5672:5672 15672:15672
+        (Management UI: http://localhost:15672 — user: {{ item.rabbitmq_user }}, pass: <from vault>)
+  loop: "{{ namespace_stacks }}"

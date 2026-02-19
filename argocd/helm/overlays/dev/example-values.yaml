@@ -1,0 +1,11 @@
+# Example service — dev overrides
+# Merge with services/example/values.yaml
+namespace: dev
+
+app:
+  example:
+    ingress:
+      subdomain: dev.example   # -> dev.example.blumefy.com
+    autoscaling:
+      minReplicaCount: 1
+      maxReplicaCount: 2

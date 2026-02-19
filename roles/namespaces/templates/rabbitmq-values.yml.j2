@@ -1,0 +1,19 @@
+# roles/namespaces/templates/rabbitmq-values.yml.j2
+# RabbitMQ
+# Bitnami moved images to bitnamilegacy/ (docker.io/bitnamilegacy/rabbitmq)
+---
+image:
+  registry: docker.io
+  repository: bitnamilegacy/rabbitmq
+auth:
+  username: "{{ rabbitmq_user }}"
+  password: "{{ rabbitmq_password }}"
+persistence:
+  enabled: true
+  size: "{{ rabbitmq_storage }}"
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi

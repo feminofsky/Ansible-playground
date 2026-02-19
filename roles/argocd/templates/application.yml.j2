@@ -1,0 +1,37 @@
+# Argo CD Application — syncs GitHub repo to cluster
+# See: https://argo-cd.readthedocs.io/en/stable/user-guide/application-specification/
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ item.name }}
+  namespace: {{ argocd_namespace }}
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ item.repo | quote }}
+    path: {{ item.path | default('.') | quote }}
+    targetRevision: {{ item.branch | default('main') | quote }}
+    {% if item.helm is defined %}
+    helm:
+      valueFiles: {{ item.helm.value_files | default(['values.yaml']) | to_json }}
+      {% if item.helm.release_name is defined %}
+      releaseName: {{ item.helm.release_name | quote }}
+      {% endif %}
+    {% endif %}
+    {% if item.kustomize is defined %}
+    kustomize:
+      {{ item.kustomize | to_nice_yaml | indent(6) }}
+    {% endif %}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ item.dest_namespace | default('default') | quote }}
+  syncPolicy:
+    {% if item.auto_sync | default(true) %}
+    automated:
+      prune: {{ item.prune | default(true) }}
+      selfHeal: {{ item.self_heal | default(true) }}
+    {% endif %}
+    syncOptions:
+      - "CreateNamespace={{ (item.create_namespace | default(true)) | string | lower }}"

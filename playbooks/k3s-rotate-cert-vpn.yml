@@ -1,0 +1,47 @@
+# playbooks/k3s-rotate-cert-vpn.yml
+# Adds 10.10.10.1, 10.10.10.2 to K3s API TLS cert so kubectl/Lens work via WireGuard.
+# Run when kubeconfig uses VPN IP but cert error: "certificate is valid for ... not 10.10.10.1"
+# Usage: ansible-playbook playbooks/k3s-rotate-cert-vpn.yml -i inventory/hosts.yml
+---
+- name: Rotate K3s API cert to include VPN IPs
+  hosts: node1
+  become: yes
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Ensure VPN tls-san config exists
+      file:
+        path: /etc/rancher/k3s/config.yaml.d
+        state: directory
+        mode: '0755'
+
+    - name: Deploy VPN tls-san override
+      template:
+        src: ../roles/k3s_server/templates/config-vpn.yaml.j2
+        dest: /etc/rancher/k3s/config.yaml.d/99-vpn.yaml
+        mode: '0644'
+      vars:
+        k3s_node_ip: "{{ wireguard_node1_ip }}"
+        k3s_advertise_address: "{{ wireguard_node1_ip }}"
+
+    - name: Delete k3s-serving secret to force cert regeneration
+      command: kubectl -n kube-system delete secret k3s-serving
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      ignore_errors: true
+
+    - name: Restart K3s to regenerate cert with new SANs
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for API
+      wait_for:
+        host: "{{ wireguard_node1_ip }}"
+        port: "{{ k3s_api_port }}"
+        timeout: 90
+      delegate_to: "{{ inventory_hostname }}"
+
+    - name: Done
+      debug:
+        msg: "K3s API cert should now include 10.10.10.1. Try kubectl/Lens again."

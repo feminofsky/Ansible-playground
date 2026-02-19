@@ -1,0 +1,27 @@
+# Argo CD AppProject — {{ item }}
+# Allows deploying to {{ item }} namespace; used by ApplicationSet-generated Applications
+# Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/app-any-namespace/
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ item }}
+  namespace: {{ argocd_namespace }}
+spec:
+  description: "Applications deploying to {{ item }} namespace"
+  sourceRepos:
+  - "*"
+  destinations:
+  - namespace: "{{ item }}"
+    server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+  - group: ""
+    kind: "*"
+  - group: apps
+    kind: "*"
+  namespaceResourceWhitelist:
+  - group: ""
+    kind: "*"
+  - group: apps
+    kind: "*"
+  - group: traefik.io
+    kind: "*"

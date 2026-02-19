@@ -1,0 +1,57 @@
+# roles/monitoring/tasks/main.yml
+---
+- name: Add Prometheus community Helm repo
+  command: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create monitoring namespace
+  command: kubectl create namespace {{ monitoring_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template monitoring values
+  template:
+    src: monitoring-values.yml.j2
+    dest: /tmp/monitoring-values.yml
+
+- name: Install kube-prometheus-stack
+  command: >
+    helm upgrade --install prometheus prometheus-community/kube-prometheus-stack
+    --namespace {{ monitoring_namespace }}
+    --values /tmp/monitoring-values.yml
+    --wait
+    --timeout 10m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Apply Grafana IngressRoute
+  template:
+    src: grafana-ingressroute.yml.j2
+    dest: /tmp/grafana-ingressroute.yml
+
+- name: Apply Grafana route to cluster
+  command: kubectl apply -f /tmp/grafana-ingressroute.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Apply alerting rules
+  template:
+    src: alert-rules.yml.j2
+    dest: /tmp/alert-rules.yml
+
+- name: Apply alert rules to cluster
+  command: kubectl apply -f /tmp/alert-rules.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Show Grafana access info
+  debug:
+    msg: "Grafana available at: https://grafana.{{ domain }} — user: admin / pass: {{ grafana_admin_password }}"

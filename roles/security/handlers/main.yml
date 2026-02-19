@@ -1,0 +1,9 @@
+# roles/security/handlers/main.yml
+---
+- name: restart fail2ban
+  systemd:
+    name: fail2ban
+    state: restarted
+
+- name: reload ufw
+  command: ufw reload

@@ -1,0 +1,148 @@
+# playbooks/update.yml
+# Rolling update playbook — zero downtime
+# Usage: ansible-playbook playbooks/update.yml -i inventory/hosts.yml
+---
+
+- name: Rolling Update — node3 first
+  hosts: node3
+  become: yes
+  serial: 1
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Drain node3
+      command: kubectl drain node3 --ignore-daemonsets --delete-emptydir-data --timeout=120s
+      delegate_to: node1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Update OS packages
+      apt:
+        upgrade: dist
+        update_cache: yes
+        autoremove: yes
+
+    - name: Update K3s
+      shell: curl -sfL https://get.k3s.io | sh -
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_TOKEN: "{{ k3s_token }}"
+
+    - name: Restart K3s
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for node3 to be Ready
+      command: kubectl wait node/node3 --for=condition=Ready --timeout=120s
+      delegate_to: node1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Uncordon node3
+      command: kubectl uncordon node3
+      delegate_to: node1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait 60s before next node
+      pause:
+        seconds: 60
+
+- name: Rolling Update — node2
+  hosts: node2
+  become: yes
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Drain node2
+      command: kubectl drain node2 --ignore-daemonsets --delete-emptydir-data --timeout=120s
+      delegate_to: node1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Update OS packages
+      apt:
+        upgrade: dist
+        update_cache: yes
+        autoremove: yes
+
+    - name: Update K3s
+      shell: curl -sfL https://get.k3s.io | sh -
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_TOKEN: "{{ k3s_token }}"
+
+    - name: Restart K3s
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for node2 to be Ready
+      command: kubectl wait node/node2 --for=condition=Ready --timeout=120s
+      delegate_to: node1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Uncordon node2
+      command: kubectl uncordon node2
+      delegate_to: node1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait 60s before next node
+      pause:
+        seconds: 60
+
+- name: Rolling Update — node1 (last)
+  hosts: node1
+  become: yes
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Drain node1
+      command: kubectl drain node1 --ignore-daemonsets --delete-emptydir-data --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Update OS packages
+      apt:
+        upgrade: dist
+        update_cache: yes
+        autoremove: yes
+
+    - name: Update K3s
+      shell: curl -sfL https://get.k3s.io | sh -
+      environment:
+        INSTALL_K3S_VERSION: "{{ k3s_version }}"
+        K3S_TOKEN: "{{ k3s_token }}"
+
+    - name: Restart K3s
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for node1 to be Ready
+      command: kubectl wait node/node1 --for=condition=Ready --timeout=120s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Uncordon node1
+      command: kubectl uncordon node1
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Verify cluster after update
+  hosts: node1
+  become: yes
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Show cluster status
+      command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: result
+
+    - debug:
+        var: result.stdout_lines

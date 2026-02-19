@@ -1,0 +1,246 @@
+# playbooks/site.yml
+# Master playbook — runs everything from scratch
+# Skips bootstrap (Phase 1–2) when complete; Phases 3+ always run to apply config changes
+#
+# Usage:
+#   Full run:      ansible-playbook playbooks/site.yml -i inventory/hosts.yml --ask-vault-pass
+#   Fresh bootstrap: ansible-playbook playbooks/site.yml -i inventory/hosts.yml -e ansible_port=22 -e ansible_bootstrap=true -k --ask-vault-pass
+#
+# Tags (run only selected phases):
+#   --tags ufw          Refresh UFW (forward policy + pod CIDR for cross-node traffic)
+#   --tags wireguard    WireGuard VPN
+#   --tags metallb      MetalLB (-e metallb_force_reinstall=true to uninstall+reinstall)
+#   --tags traefik      Traefik ingress
+#   --tags infisical    Infisical
+#   --tags k8s_access   Team member kubeconfig
+#   --tags namespaces   Namespaces + Redis/RabbitMQ
+#   --tags monitoring   Prometheus/Grafana (if enabled)
+#   --tags argocd       Argo CD (GitOps: GitHub → cluster)
+#
+# Skip phases: ansible-playbook site.yml --skip-tags monitoring,infisical
+---
+
+# ── Detect what's already done (skip completed phases) ─
+- name: Check phase completion
+  hosts: control_plane
+  gather_facts: true
+  tasks:
+    - name: Check if bootstrap complete
+      stat:
+        path: /etc/ansible/bootstrap-complete
+      register: bootstrap_check
+    - set_fact:
+        bootstrap_complete: "{{ bootstrap_check.stat.exists }}"
+
+
+# ── Phase 1: Base setup on all nodes ────────────────
+# Fresh bootstrap: ansible-playbook site.yml -e ansible_port=22 -k --ask-vault-pass
+- name: Phase 1 — Base Setup (all nodes)
+  hosts: control_plane
+  become: yes
+  tags: bootstrap,common
+  pre_tasks:
+    - meta: end_play
+      when: bootstrap_complete | default(false)
+  serial: 1                # Run one node at a time for safety
+  vars:
+    ansible_ssh_common_args: "{{ '-o PreferredAuthentications=password -o PubkeyAuthentication=no' if (ansible_bootstrap | default(false)) else '' }}"
+  roles:
+    - common
+
+# ── Phase 2: Security hardening on all nodes ────────
+- name: Phase 2 — Security Hardening (all nodes)
+  hosts: control_plane
+  become: yes
+  tags: bootstrap,security
+  pre_tasks:
+    - meta: end_play
+      when: bootstrap_complete | default(false)
+  serial: 1
+  vars:
+    ansible_ssh_common_args: "{{ '-o PreferredAuthentications=password -o PubkeyAuthentication=no' if (ansible_bootstrap | default(false)) else '' }}"
+  roles:
+    - security
+  post_tasks:
+    - name: Update connection for subsequent plays (deploy user, new port)
+      set_fact:
+        ansible_user: "{{ deploy_user }}"
+        ansible_port: "{{ ssh_port }}"
+
+# ── Phase 2.5: WireGuard VPN (before K3s) ────────────
+# Node1 = server; node2 + deploy + team = clients. Cluster uses VPN IPs.
+- name: Phase 2.5 — WireGuard VPN
+  hosts: control_plane
+  become: yes
+  serial: 1
+  tags: wireguard
+  pre_tasks:
+    - meta: end_play
+      when: not (wireguard_enabled | default(false))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - wireguard
+
+# ── Phase 2.5b: Verify VPN connectivity before K3s ───
+- name: Phase 2.5b — Verify VPN connectivity
+  hosts: node1
+  become: yes
+  tags: wireguard
+  gather_facts: false
+  pre_tasks:
+    - meta: end_play
+      when: not (wireguard_enabled | default(false))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Verify node1 can reach node2 over VPN
+      wait_for:
+        host: "{{ wireguard_node2_ip }}"
+        port: "{{ ssh_port }}"
+        timeout: 30
+
+# ── Phase 2.9: Refresh UFW (runs every time) ───────
+# Ensures forward policy + pod CIDR allows for cross-node traffic; applies after WireGuard
+- import_playbook: refresh-ufw.yml
+
+# ── Phase 3: Install K3s — node1 first ──────────────
+# Role runs every time; K3s install is skipped when binary exists; config updates applied
+- name: Phase 3a — Init K3s cluster on node1
+  hosts: node1
+  become: yes
+  tags: k3s
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - k3s_server
+
+# ── Phase 3b: Join node2 ────────────────────────────
+- name: Phase 3b — Join node2 to cluster
+  hosts: node2
+  become: yes
+  tags: k3s
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - k3s_server
+
+# ── Phase 4: Install MetalLB (node1 only) ───────────
+# helm/kubectl apply is idempotent; config changes (IP pool, etc.) are applied
+- name: Phase 4 — Install MetalLB
+  hosts: node1
+  become: yes
+  tags: metallb
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - metallb
+
+# ── Phase 5: Install Traefik (node1 only) ───────────
+# helm upgrade applies new values when vars/templates change
+- name: Phase 5 — Install Traefik
+  hosts: node1
+  become: yes
+  tags: traefik
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - traefik
+
+# ── Phase 5b: Install Infisical (node1 only) ────────
+# Not exposed via Traefik; access via kubectl port-forward
+- name: Phase 5b — Install Infisical
+  hosts: node1
+  become: yes
+  tags: infisical
+  pre_tasks:
+    - meta: end_play
+      when: not (infisical_enabled | default(false))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - infisical
+
+# ── Phase 6: Install Monitoring (node1 only) ────────
+# Skip when monitoring_enabled: false in vars
+- name: Phase 6 — Install Monitoring Stack
+  hosts: node1
+  become: yes
+  tags: monitoring
+  pre_tasks:
+    - meta: end_play
+      when: not (monitoring_enabled | default(false))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - monitoring
+
+# ── Phase 6b: Kubernetes team access (node1 only) ────
+- name: Phase 6b — Grant team member Kubernetes access
+  hosts: node1
+  become: yes
+  tags: k8s_access
+  pre_tasks:
+    - meta: end_play
+      when: k8s_team_members | default([]) | length == 0
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - k8s_access
+
+# ── Phase 7: Namespaces + Dev Stack (node1 only) ────
+# Creates prod & dev namespaces; Redis + RabbitMQ in dev
+- name: Phase 7 — Namespaces and Development Stack
+  hosts: node1
+  become: yes
+  tags: namespaces
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - namespaces
+
+# ── Phase 7b: Argo CD (GitOps) ─────────────────────
+# Argo CD pulls from GitHub and syncs to cluster. No need to expose K3s API.
+- name: Phase 7b — Install Argo CD
+  hosts: node1
+  become: yes
+  tags: argocd
+  pre_tasks:
+    - meta: end_play
+      when: not (argocd_enabled | default(true))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - argocd
+
+# ── Final: Verify cluster ───────────────────────────
+- name: Final — Verify Cluster
+  hosts: node1
+  become: yes
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Get all nodes
+      command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: nodes
+
+    - name: Get all pods
+      command: kubectl get pods -A
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: pods
+
+    - name: Print cluster status
+      debug:
+        msg: |
+          ============================================
+          ✅ CLUSTER SETUP COMPLETE
+          ============================================
+          NODES:
+          {{ nodes.stdout }}
+
+          PODS:
+          {{ pods.stdout }}
+          ============================================

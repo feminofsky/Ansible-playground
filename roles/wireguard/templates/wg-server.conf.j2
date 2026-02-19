@@ -1,0 +1,16 @@
+# WireGuard server on node1 - managed by Ansible
+[Interface]
+Address = {{ wireguard_node1_ip }}/24
+ListenPort = {{ wireguard_port }}
+PrivateKey = {{ wg_server_private_key }}
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o {{ ansible_default_ipv4.interface | default('eth0') }} -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o {{ ansible_default_ipv4.interface | default('eth0') }} -j MASQUERADE
+
+{% for peer in wg_peers %}
+[Peer]
+PublicKey = {{ peer.public_key }}
+AllowedIPs = {{ peer.allowed_ips }}{% if peer.endpoint is defined %}
+
+Endpoint = {{ peer.endpoint }}{% endif %}
+
+{% endfor %}

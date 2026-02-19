@@ -1,0 +1,140 @@
+# playbooks/refresh-ufw.yml
+# Refresh UFW rules to match current vars (WireGuard subnet, etc.)
+# Safe to run anytime — only updates firewall, does not touch SSH/root
+# Usage: ansible-playbook playbooks/refresh-ufw.yml -i inventory/hosts.yml
+---
+- name: Refresh UFW firewall rules
+  hosts: control_plane
+  become: yes
+  tags: ufw
+  serial: 1
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+
+
+    - name: Configure UFW defaults
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: incoming, policy: deny }
+        - { direction: outgoing, policy: allow }
+
+    # Forward policy: required for cross-node pod traffic; CLI applies now, file persists across reboot
+    - name: Set UFW forward policy in config (persists across reboot)
+      lineinfile:
+        path: /etc/default/ufw
+        regexp: '^DEFAULT_FORWARD_POLICY='
+        line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+      register: ufw_forward_config
+
+    - name: Set UFW forward policy via CLI (applies immediately)
+      command: ufw default allow routed
+      register: ufw_default_routed
+      changed_when: true
+
+    - name: Allow K3s pod and service CIDR forwarding
+      command: "ufw route allow from {{ item }}"
+      loop:
+        - 10.42.0.0/16
+        - 10.43.0.0/16
+      register: route_allow
+      changed_when: route_allow.rc == 0
+      failed_when: false
+
+    - name: Allow public ports (SSH, Traefik)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ [ssh_port, 80, 443] }}"
+
+    - name: Allow traffic from VPN / cluster
+      ufw:
+        rule: allow
+        src: "{{ item }}"
+      loop: "{{ wireguard_allowed_sources }}"
+
+    # Explicit K3s cluster ports from VPN (belt-and-suspenders; broad allow above covers these)
+    - name: Allow etcd from VPN
+      ufw:
+        rule: allow
+        port: 2379:2380
+        proto: tcp
+        src: "{{ item }}"
+      loop: "{{ wireguard_allowed_sources }}"
+      when: wireguard_enabled | default(false)
+
+    - name: Allow Flannel VXLAN from anywhere
+      ufw:
+        rule: allow
+        port: 8472
+        proto: udp
+
+    - name: Allow Kubelet from VPN
+      ufw:
+        rule: allow
+        port: 10250
+        proto: tcp
+        src: "{{ item }}"
+      loop: "{{ wireguard_allowed_sources }}"
+      when: wireguard_enabled | default(false)
+
+    - name: Allow MetalLB L2 from VPN
+      ufw:
+        rule: allow
+        port: 7946
+        proto: tcp
+        src: "{{ wireguard_subnet }}"
+      when: wireguard_enabled | default(false)
+
+    - name: Allow MetalLB L2 UDP from VPN
+      ufw:
+        rule: allow
+        port: 7946
+        proto: udp
+        src: "{{ wireguard_subnet }}"
+      when: wireguard_enabled | default(false)
+
+    - name: Allow WireGuard port on node1
+      ufw:
+        rule: allow
+        port: "{{ wireguard_port | default(51820) }}"
+        proto: udp
+      when: >-
+        inventory_hostname == 'node1'
+        and (wireguard_enabled | default(false))
+        and (wireguard_allow_public | default(true))
+
+    - name: Allow K3s API from admin sources
+      ufw:
+        rule: allow
+        port: "{{ k3s_api_port }}"
+        proto: tcp
+        src: "{{ item }}"
+      loop: "{{ k3s_api_allowed_sources }}"
+      when: k3s_api_allowed_sources | default([]) | length > 0
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    # Restart UFW so forward policy takes effect (reload doesn't re-read /etc/default/ufw)
+    - name: Restart UFW to apply forward policy
+      block:
+        - name: Disable UFW
+          ufw:
+            state: disabled
+        - name: Enable UFW
+          ufw:
+            state: enabled
+
+    - name: Show UFW status
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: UFW rules applied
+      debug:
+        msg: "{{ ufw_status.stdout_lines[:30] }}"

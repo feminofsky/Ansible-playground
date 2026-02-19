@@ -1,0 +1,29 @@
+# playbooks/rollback-vpn-config.yml
+# Removes VPN config overrides and restarts K3s — use if K3s is stuck activating
+# Usage: ansible-playbook playbooks/rollback-vpn-config.yml -i inventory/hosts.yml
+---
+- name: Remove VPN config overrides and restore K3s
+  hosts: control_plane
+  become: yes
+  serial: 1
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Remove VPN config overrides
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher/k3s/config.yaml.d/99-vpn.yaml
+        - /etc/rancher/k3s/config.yaml.d/99-vpn-tls.yaml
+      ignore_errors: true
+
+    - name: Restart K3s
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Pause for K3s to stabilize
+      pause:
+        seconds: 30
+        prompt: "K3s restarting. Check with: systemctl status k3s"

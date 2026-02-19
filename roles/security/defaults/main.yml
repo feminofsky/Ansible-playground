@@ -1,0 +1,3 @@
+---
+# Debian/Ubuntu use 'ssh'; RHEL/CentOS use 'sshd'
+ssh_service: "{{ 'ssh' if ansible_facts['os_family'] == 'Debian' else 'sshd' }}"

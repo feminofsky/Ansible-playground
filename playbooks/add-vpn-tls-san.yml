@@ -1,0 +1,41 @@
+# playbooks/add-vpn-tls-san.yml
+# Adds 10.10.10.1 and 10.10.10.2 to K3s TLS certificate so kubectl/Lens works via WireGuard.
+# Run this if you get: x509: certificate is valid for ... not 10.10.10.1
+# Usage: ansible-playbook playbooks/add-vpn-tls-san.yml -i inventory/hosts.yml
+---
+- name: Add VPN IPs to K3s TLS certificate
+  hosts: node1
+  become: yes
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Ensure config.d exists
+      file:
+        path: /etc/rancher/k3s/config.yaml.d
+        state: directory
+        mode: '0755'
+
+    - name: Deploy tls-san override for VPN IPs
+      copy:
+        dest: /etc/rancher/k3s/config.yaml.d/99-vpn-tls.yaml
+        content: |
+          tls-san:
+            - {{ wireguard_node1_ip }}
+            - {{ wireguard_node2_ip }}
+        mode: '0644'
+
+    - name: Restart K3s to regenerate certificate
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for K3s API
+      wait_for:
+        host: "{{ wireguard_node1_ip }}"
+        port: "{{ k3s_api_port }}"
+        timeout: 120
+      delegate_to: "{{ groups['control_plane'][0] }}"
+
+    - name: TLS SAN updated
+      debug:
+        msg: "K3s certificate now includes {{ wireguard_node1_ip }} and {{ wireguard_node2_ip }}. Connect via WireGuard and kubectl should work."

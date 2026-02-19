@@ -1,0 +1,153 @@
+# inventory/group_vars/all/vars.yml
+# Global variables shared across all nodes
+
+# ─── SSH & Users ────────────────────────────────────
+deploy_user: deploy
+deploy_password: "{{ vault_deploy_password }}"   # Store in vault.yml
+ssh_port: 2222
+ssh_public_key: "{{ lookup('file', '~/.ssh/id_ed25519.pub') }}"
+
+# ─── Domain & Email ─────────────────────────────────
+domain: blumefy.com
+admin_email: techops@blumefy.com
+
+# ─── Node IPs (for /etc/hosts and firewall rules) ───
+node1_ip: "161.97.69.48"
+node2_ip: "161.97.85.133"
+
+# ─── WireGuard VPN ─────────────────────────────────
+# Cluster + etcd + API over private VPN; no public exposure
+wireguard_enabled: true
+wireguard_subnet: "10.10.10.0/24"
+wireguard_node1_ip: "10.10.10.1"
+wireguard_node2_ip: "10.10.10.2"
+wireguard_deploy_ip: "10.10.10.10"
+# wireguard_full_vpn: true = UFW allows only VPN (10.10.10.0/24). Use for fresh install or after migrate-to-vpn.
+# wireguard_full_vpn: false = UFW allows VPN + node public IPs (for migration or debugging).
+wireguard_full_vpn: true
+wireguard_allowed_sources: "{{ [wireguard_subnet] if (wireguard_full_vpn | default(false)) else ([wireguard_subnet] + [node1_ip, node2_ip]) if (wireguard_enabled | default(false)) else [node1_ip, node2_ip] }}"
+k3s_api_allowed_sources: "{{ [wireguard_subnet] if (wireguard_enabled | default(false)) else (k3s_api_allowed_ips | default([])) }}"
+# Public access: ONLY 2222 (SSH), 80, 443 (Traefik). WireGuard 51820 optional for VPN.
+wireguard_allow_public: true   # false = max lockout; VPN needs SSH tunnel or trusted network
+
+# ─── K3s ────────────────────────────────────────────
+k3s_version: "v1.34.0+k3s1"   # Kubernetes 1.34+; latest: v1.35.1+k3s1
+k3s_token: "{{ vault_k3s_token }}"        # Store in vault.yml
+k3s_api_port: 6443
+# When wireguard_enabled: API only from VPN. Else: k3s_api_allowed_ips (CIDRs)
+# WireGuard: set automatically. Non-VPN: ["1.2.3.4/32"] for admin IPs
+k3s_api_allowed_ips: []
+
+# ─── Team member Kubernetes access (kubectl only, no SSH) ─
+# Run: ansible-playbook playbooks/site.yml --tags k8s_access
+# Kubeconfigs saved to kubeconfigs/<name>-kubeconfig.yml
+# Add their IP to k3s_api_allowed_ips so they can reach the API (port 6443 only)
+# role: cluster-admin (full) | edit (read+write) | view (read-only)
+k8s_team_members:
+  - name: alice
+    role: cluster-admin
+k3s_config_dir: /etc/rancher/k3s
+k3s_data_dir: /var/lib/rancher/k3s
+
+# ─── MetalLB ────────────────────────────────────────
+metallb_version: "v0.15.3"
+# LoadBalancer IPs: use node1 public IP so Traefik ingress is reachable from internet
+metallb_ip_pool: "{{ node1_ip }}/32"
+
+# ─── Traefik ────────────────────────────────────────
+traefik_version: "39.0.0"   # Helm chart version
+traefik_namespace: traefik
+traefik_replicas: 1          # 1 replica: PVC is ReadWriteOnce, can't spread across nodes
+traefik_dashboard_exposed: false   # Never expose dashboard to domain; use kubectl port-forward
+
+# ─── Infisical (secrets management) ───────────────────
+infisical_enabled: true
+infisical_namespace: infisical
+infisical_version: "v0.158.2"
+infisical_replicas: 1
+infisical_postgres_size: 8Gi
+infisical_redis_size: 8Gi
+# DB name set by Infisical standalone Helm chart (often infisicalDB)
+infisical_postgres_database: infisicalDB
+# SITE_URL for redirects when using port-forward; not exposed via Traefik
+infisical_site_url: "http://localhost"
+# Pin entire stack to node1: avoids cross-node DNS (EAI_AGAIN) over VPN/Flannel in K3s
+infisical_node: node1
+
+# ─── Monitoring ─────────────────────────────────────
+monitoring_enabled: false   # Set to true to install Prometheus + Grafana
+monitoring_namespace: monitoring
+grafana_admin_password: "{{ vault_grafana_password }}"   # Store in vault.yml
+
+# ─── Fail2Ban ───────────────────────────────────────
+fail2ban_maxretry: 3
+fail2ban_bantime: 86400
+fail2ban_findtime: 600
+
+# ─── Argo CD (GitOps) ──────────────────────────────
+# AppProjects: dev, prod (each allows deploying to its namespace)
+# ApplicationSet watches applications/ in the Git repo and creates Applications automatically.
+# For private repos: vault_argocd_repo_ssh_key in vault.yml OR argocd_repo_ssh_key_file (path to key)
+argocd_repo_ssh_key_file: "{{ playbook_dir }}/../argocd-deploy"   # key in project root
+argocd_enabled: true
+argocd_projects: [dev, prod]
+# Git repo URL for ApplicationSet (watches applications/*.yaml in this repo)
+argocd_gitops_repo_url: "git@github.com:Blumefy/gitops-services.git"   # e.g. https://github.com/org/gitops-services.git or git@github.com:org/gitops-services.git
+argocd_gitops_repo_revision: main
+# Legacy: manual app list (when argocd_gitops_repo_url not set)
+argocd_applications: []
+
+# ─── Namespaces & Dev/Prod Stack (Phase 7) ──────────
+prod_namespace: prod
+dev_namespace: dev
+dev_redis_version: "25.3.0"
+dev_rabbitmq_version: "15.0.7"   # 15.0.9 doesn't exist; 15.0.7 is latest 15.0.x
+dev_redis_storage: 1Gi
+dev_rabbitmq_storage: 1Gi
+prod_redis_version: "25.3.0"
+prod_rabbitmq_version: "15.0.7"
+prod_redis_storage: 2Gi
+prod_rabbitmq_storage: 2Gi
+
+namespace_stacks:
+  - name: dev
+    namespace: "{{ dev_namespace }}"
+    redis_password: "{{ vault_dev_redis_password }}"
+    redis_storage: "{{ dev_redis_storage }}"
+    redis_version: "{{ dev_redis_version }}"
+    rabbitmq_user: "{{ vault_dev_rabbitmq_user }}"
+    rabbitmq_password: "{{ vault_dev_rabbitmq_password }}"
+    rabbitmq_storage: "{{ dev_rabbitmq_storage }}"
+    rabbitmq_version: "{{ dev_rabbitmq_version }}"
+  - name: prod
+    namespace: "{{ prod_namespace }}"
+    redis_password: "{{ vault_prod_redis_password }}"
+    redis_storage: "{{ prod_redis_storage }}"
+    redis_version: "{{ prod_redis_version }}"
+    rabbitmq_user: "{{ vault_prod_rabbitmq_user }}"
+    rabbitmq_password: "{{ vault_prod_rabbitmq_password }}"
+    rabbitmq_storage: "{{ prod_rabbitmq_storage }}"
+    rabbitmq_version: "{{ prod_rabbitmq_version }}"
+
+# ─── Subdomains ─────────────────────────────────────
+subdomains:
+  - name: admin
+    service: admin-service
+    port: 80
+    namespace: prod
+  - name: api
+    service: api-service
+    port: 80
+    namespace: prod
+  - name: dev
+    service: dev-service
+    port: 80
+    namespace: dev
+  - name: dev.admin
+    service: dev-admin-service
+    port: 80
+    namespace: dev
+  - name: dev.api
+    service: dev-api-service
+    port: 80
+    namespace: dev

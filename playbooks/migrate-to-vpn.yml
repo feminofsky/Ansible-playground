@@ -1,0 +1,162 @@
+# playbooks/migrate-to-vpn.yml
+# Migrates K3s cluster to use WireGuard VPN IPs (10.10.10.x) instead of public IPs.
+# Prerequisites: WireGuard running on both nodes; connect via WireGuard before running.
+# Usage: ansible-playbook playbooks/migrate-to-vpn.yml -i inventory/hosts.yml
+# After success: set wireguard_full_vpn: true in vars.yml, run refresh-ufw.yml
+---
+- name: Backup etcd on node1
+  hosts: node1
+  become: true
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Create etcd snapshot backup
+      command: /usr/local/bin/k3s etcd-snapshot save --name pre-vpn-migration
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: true
+      register: etcd_backup
+      ignore_errors: true
+
+    - name: Ensure config.d exists
+      file:
+        path: /etc/rancher/k3s/config.yaml.d
+        state: directory
+        mode: '0755'
+
+    - name: Deploy VPN config override for node1
+      template:
+        src: ../roles/k3s_server/templates/config-vpn.yaml.j2
+        dest: /etc/rancher/k3s/config.yaml.d/99-vpn.yaml
+        mode: '0644'
+      vars:
+        k3s_node_ip: "{{ wireguard_node1_ip }}"
+        k3s_advertise_address: "{{ wireguard_node1_ip }}"
+
+    - name: Restart K3s on node1
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for K3s API on VPN IP
+      wait_for:
+        host: "{{ wireguard_node1_ip }}"
+        port: "{{ k3s_api_port }}"
+        timeout: 120
+      delegate_to: "{{ groups['control_plane'][0] }}"
+
+    - name: Ensure etcdctl is available (K3s does not include it)
+      block:
+        - name: Check if etcdctl exists
+          stat:
+            path: /usr/local/bin/etcdctl
+          register: etcdctl_stat
+
+        - name: Download and install etcdctl (v3.5.15, K3s-compatible)
+          unarchive:
+            src: "https://github.com/etcd-io/etcd/releases/download/v3.5.15/etcd-v3.5.15-linux-amd64.tar.gz"
+            dest: /tmp/
+            remote_src: yes
+          when: not etcdctl_stat.stat.exists
+
+        - name: Copy etcdctl to /usr/local/bin
+          copy:
+            src: /tmp/etcd-v3.5.15-linux-amd64/etcdctl
+            dest: /usr/local/bin/etcdctl
+            mode: '0755'
+          when: not etcdctl_stat.stat.exists
+
+    - name: Get etcd member list
+      command: etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert=/var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key=/var/lib/rancher/k3s/server/tls/etcd/server-client.key member list -w simple
+      register: etcd_members
+      changed_when: false
+      environment:
+        ETCDCTL_API: "3"
+      failed_when: false
+
+    - name: Update etcd member peer URLs to internal VPN IPs
+      shell: |
+        set -e
+        ETCD_ARGS="--endpoints=https://127.0.0.1:2379 --cacert=/var/lib/rancher/k3s/server/tls/etcd/server-ca.crt --cert=/var/lib/rancher/k3s/server/tls/etcd/server-client.crt --key=/var/lib/rancher/k3s/server/tls/etcd/server-client.key"
+        # Update node1's member (161.97.69.48 -> 10.10.10.1)
+        ID1=$(etcdctl $ETCD_ARGS member list -w simple | grep "{{ node1_ip }}" | head -1 | awk '{print $1}')
+        if [ -n "$ID1" ]; then
+          etcdctl $ETCD_ARGS member update "$ID1" --peer-urls="https://{{ wireguard_node1_ip }}:2380"
+        fi
+        # Update node2's member (161.97.85.133 -> 10.10.10.2)
+        ID2=$(etcdctl $ETCD_ARGS member list -w simple | grep "{{ node2_ip }}" | head -1 | awk '{print $1}')
+        if [ -n "$ID2" ]; then
+          etcdctl $ETCD_ARGS member update "$ID2" --peer-urls="https://{{ wireguard_node2_ip }}:2380"
+        fi
+      args:
+        executable: /bin/bash
+      environment:
+        ETCDCTL_API: "3"
+      when: (node1_ip in (etcd_members.stdout | default(''))) or (node2_ip in (etcd_members.stdout | default('')))
+
+- name: Reconfigure node2 with internal VPN IP
+  hosts: node2
+  become: true
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Cordon node2 (minimize disruption)
+      shell: kubectl cordon node2
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      ignore_errors: true
+
+    - name: Ensure config.d exists
+      file:
+        path: /etc/rancher/k3s/config.yaml.d
+        state: directory
+        mode: '0755'
+
+    - name: Deploy VPN config override for node2 (internal IP)
+      template:
+        src: ../roles/k3s_server/templates/config-vpn.yaml.j2
+        dest: /etc/rancher/k3s/config.yaml.d/99-vpn.yaml
+        mode: '0644'
+      vars:
+        k3s_node_ip: "{{ wireguard_node2_ip }}"
+        k3s_advertise_address: "{{ wireguard_node2_ip }}"
+        k3s_server_url: "https://{{ wireguard_node1_ip }}:{{ k3s_api_port }}"
+
+    - name: Restart K3s on node2
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for node2 to rejoin
+      pause:
+        seconds: 45
+
+- name: Verify cluster and cleanup
+  hosts: node1
+  become: true
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Get node status
+      command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: nodes_out
+
+    - name: Show nodes
+      debug:
+        var: nodes_out.stdout_lines
+
+    - name: Uncordon node2
+      shell: kubectl uncordon node2
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      ignore_errors: true
+
+    - name: Migration complete - next steps
+      debug:
+        msg: |
+          Migration done. Nodes should show INTERNAL-IP 10.10.10.x
+          Run: kubectl get nodes -o wide
+          Then set wireguard_full_vpn: true in vars.yml and run:
+          ansible-playbook playbooks/refresh-ufw.yml -i inventory/hosts.yml

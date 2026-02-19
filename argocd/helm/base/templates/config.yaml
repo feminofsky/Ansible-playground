@@ -1,0 +1,16 @@
+---
+{{- range $name, $app := .Values.app }}
+{{- if hasKey $app "configmap" }}
+{{- with $ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-configmap
+data:
+    {{- range $key, $value := $app.configmap }}
+    {{ $key}}: {{ $value | quote }}
+    {{- end }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

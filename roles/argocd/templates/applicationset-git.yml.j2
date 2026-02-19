@@ -1,0 +1,45 @@
+# ApplicationSet — discovers overlay files and creates Applications automatically
+# One Application per overlay: helm/overlays/dev/example-values.yaml → example-dev (project: dev)
+# No overlay in prod? No Application. Add overlay file to enable an environment.
+# Ref: https://argo-cd.readthedocs.io/en/stable/operator-manual/applicationset/Generators-Git/
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: gitops-apps
+  namespace: {{ argocd_namespace }}
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: {{ argocd_gitops_repo_url | quote }}
+        revision: {{ argocd_gitops_repo_revision | default('main') | quote }}
+        files:
+          - path: "helm/overlays/*/*-values.yaml"
+  template:
+    metadata:
+      name: '{{ "{{" }} (printf "%s-%s" (replace "-values.yaml" "" .path.filename) .path.basename) {{ "}}" }}'
+      namespace: {{ argocd_namespace }}
+    spec:
+      project: '{{ "{{" }} .path.basename {{ "}}" }}'
+      sources:
+        - repoURL: {{ argocd_gitops_repo_url | quote }}
+          path: helm/base
+          targetRevision: {{ argocd_gitops_repo_revision | default('main') | quote }}
+          helm:
+            releaseName: '{{ "{{" }} replace "-values.yaml" "" .path.filename {{ "}}" }}'
+            valueFiles:
+              - '{{ "{{" }} printf "$values/services/%s/values.yaml" (replace "-values.yaml" "" .path.filename) {{ "}}" }}'
+              - '{{ "{{" }} printf "$values/helm/overlays/%s/%s" .path.basename .path.filename {{ "}}" }}'
+        - repoURL: {{ argocd_gitops_repo_url | quote }}
+          ref: values
+          targetRevision: {{ argocd_gitops_repo_revision | default('main') | quote }}
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ "{{" }} .path.basename {{ "}}" }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+        - CreateNamespace=true

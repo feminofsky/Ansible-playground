@@ -1,0 +1,39 @@
+# playbooks/prepare-for-vpn-migration.yml
+# Use when either node has 99-vpn.yaml and nodes can't reach each other (both time out).
+# Reverts BOTH nodes to public IP so they establish quorum, then migrate-to-vpn can update etcd.
+# Run before: ansible-playbook playbooks/migrate-to-vpn.yml -i inventory/hosts.yml
+#
+# Also ensure wireguard_full_vpn: false and run refresh-ufw.yml so node IPs are allowed.
+---
+- name: Temporarily revert both nodes to public IP for quorum
+  hosts: control_plane
+  become: true
+  serial: 1
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  tasks:
+    - name: Remove VPN config override
+      file:
+        path: /etc/rancher/k3s/config.yaml.d/99-vpn.yaml
+        state: absent
+
+    - name: Restart K3s (binds to public IP again)
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for K3s to stabilize
+      pause:
+        seconds: 45
+
+- name: Ready for migration
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Next step
+      debug:
+        msg: |
+          Both nodes should now be reachable at public IPs.
+          Ensure wireguard_full_vpn: false in vars.yml, then:
+            ansible-playbook playbooks/refresh-ufw.yml -i inventory/hosts.yml
+            ansible-playbook playbooks/migrate-to-vpn.yml -i inventory/hosts.yml

@@ -1,0 +1,13 @@
+# WireGuard node2 - managed by Ansible
+[Interface]
+Address = {{ wireguard_node2_ip }}/24
+PrivateKey = {{ wg_node2_private_key }}
+# Allow forwarded traffic on wg (needed for cross-node pod traffic: CoreDNS responses node1->node2)
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT
+
+[Peer]
+PublicKey = {{ wg_server_public_key }}
+Endpoint = {{ node1_ip }}:{{ wireguard_port }}
+AllowedIPs = {{ wireguard_subnet }}
+PersistentKeepalive = 25

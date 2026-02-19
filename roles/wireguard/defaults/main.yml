@@ -1,0 +1,9 @@
+---
+wireguard_port: 51820
+wireguard_interface: wg0
+wireguard_subnet: "10.10.10.0/24"
+wireguard_node1_ip: "10.10.10.1"
+wireguard_node2_ip: "10.10.10.2"
+wireguard_deploy_ip: "10.10.10.10"
+# Team members get 10.10.10.11, 10.10.10.12, ...
+wireguard_configs_output_dir: wireguard-configs  # Relative to project root

@@ -1,0 +1,168 @@
+# roles/argocd/tasks/main.yml
+# Install Argo CD and configure GitOps applications (GitHub → cluster)
+---
+- name: Add Argo CD Helm repo
+  command: helm repo add argo https://argoproj.github.io/argo-helm
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create Argo CD namespace
+  shell: kubectl create namespace {{ argocd_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template Argo CD Helm values
+  template:
+    src: argocd-values.yml.j2
+    dest: /tmp/argocd-values.yml
+
+- name: Install or upgrade Argo CD
+  command: >
+    helm upgrade --install argocd argo/argo-cd
+    --namespace {{ argocd_namespace }}
+    --values /tmp/argocd-values.yml
+    --version {{ argocd_version }}
+    --wait
+    --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Create AppProjects (prod, dev)
+  template:
+    src: app-project.yml.j2
+    dest: "/tmp/argocd-project-{{ item }}.yml"
+  loop: "{{ argocd_projects | default(['dev', 'prod']) }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Apply AppProjects
+  command: kubectl apply -f /tmp/argocd-project-{{ item }}.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  loop: "{{ argocd_projects | default(['dev', 'prod']) }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Remove AppProject manifests
+  file:
+    path: "/tmp/argocd-project-{{ item }}.yml"
+    state: absent
+  loop: "{{ argocd_projects | default(['dev', 'prod']) }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Create ApplicationSet manifest
+  when: argocd_gitops_repo_url | default('') | trim | length > 0
+  block:
+    - name: Template ApplicationSet
+      template:
+        src: applicationset-git.yml.j2
+        dest: /tmp/argocd-applicationset.yml
+
+    - name: Apply ApplicationSet
+      command: kubectl apply -f /tmp/argocd-applicationset.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Remove ApplicationSet manifest
+      file:
+        path: /tmp/argocd-applicationset.yml
+        state: absent
+
+- name: Create repo secret for private Git repos
+  when: vault_argocd_repo_ssh_key is defined or (argocd_repo_ssh_key_file | default('') | trim | length > 0)
+  block:
+    - name: Resolve Argo CD repo SSH key
+      set_fact:
+        argocd_repo_ssh_key_content: "{{ vault_argocd_repo_ssh_key if vault_argocd_repo_ssh_key is defined else lookup('file', argocd_repo_ssh_key_file) }}"
+        argocd_repo_secret_url_arg: "{{ '--from-literal=url=' + (argocd_gitops_repo_url | quote) if (argocd_gitops_repo_url | default('')).startswith('git@') else '' }}"
+
+    - name: Write SSH key to temp file on target
+      copy:
+        content: "{{ argocd_repo_ssh_key_content }}"
+        dest: /tmp/argocd-repo-ssh-key
+        mode: '0600'
+      no_log: true
+
+    - name: Create Argo CD repo secret via kubectl (avoids YAML templating issues)
+      shell: |
+        kubectl create secret generic repo-gitops \
+          --namespace={{ argocd_namespace }} \
+          --from-literal=type=git \
+          {{ argocd_repo_secret_url_arg }} \
+          --from-file=sshPrivateKey=/tmp/argocd-repo-ssh-key \
+          --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Label secret for Argo CD
+      command: >
+        kubectl label secret repo-gitops
+        argocd.argoproj.io/secret-type=repository
+        --namespace={{ argocd_namespace }}
+        --overwrite
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Remove temp SSH key file
+      file:
+        path: /tmp/argocd-repo-ssh-key
+        state: absent
+
+    - name: Restart Argo CD repo server to pick up new credentials
+      command: kubectl rollout restart deployment/argocd-repo-server -n {{ argocd_namespace }}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Create Argo CD Applications (legacy — when not using ApplicationSet)
+  when:
+    - argocd_applications | default([]) | length > 0
+    - not (argocd_gitops_repo_url | default('') | trim | length > 0)
+  block:
+    - name: Template Application manifest
+      template:
+        src: application.yml.j2
+        dest: "/tmp/argocd-app-{{ item.name }}.yml"
+      loop: "{{ argocd_applications }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Apply Applications to cluster
+      command: kubectl apply -f /tmp/argocd-app-{{ item.name }}.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ argocd_applications }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Remove Application manifests
+      file:
+        path: "/tmp/argocd-app-{{ item.name }}.yml"
+        state: absent
+      loop: "{{ argocd_applications }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+- name: Remove Argo CD values from disk
+  file:
+    path: /tmp/argocd-values.yml
+    state: absent
+
+- name: Show Argo CD access info
+  debug:
+    msg: |
+      Argo CD installed with AppProjects: {{ argocd_projects | default(['dev', 'prod']) | join(', ') }}
+      {% if argocd_gitops_repo_url | default('') | trim %}
+      ApplicationSet discovers helm/overlays/*/*-values.yaml — add overlay files to create Applications per env.
+      {% elif argocd_applications | default([]) | length == 0 %}
+      Set argocd_gitops_repo_url in vars.yml, or add argocd_applications for legacy mode.
+      {% endif %}
+      Access: kubectl port-forward -n {{ argocd_namespace }} svc/argocd-server 8080:443
+      Password: kubectl -n {{ argocd_namespace }} get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d

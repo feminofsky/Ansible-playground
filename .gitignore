@@ -1,0 +1,40 @@
+# Nested git repo (argocd is its own repo, pushed separately)
+argocd/.git/
+
+# Sensitive — kubeconfigs contain cluster tokens
+kubeconfigs/
+**/kubeconfigs/
+
+# Sensitive — WireGuard configs contain private keys
+wireguard-configs/
+**/wireguard-configs/
+
+# SSH deploy keys (Argo CD, etc.) — never commit
+argocd-deploy
+argocd-deploy.pub
+*-deploy
+*-deploy.pub
+
+# Ansible
+*.retry
+.ansible/
+.vault_pass
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

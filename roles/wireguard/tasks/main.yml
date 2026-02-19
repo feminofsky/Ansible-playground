@@ -1,0 +1,174 @@
+---
+# WireGuard: node1 = server, node2 + deploy + team = clients
+# Configs built via Ansible templates (no shell script)
+
+- name: Initialize wireguard_clients with deploy
+  set_fact:
+    wireguard_clients:
+      - name: deploy
+        ip: "{{ wireguard_deploy_ip }}"
+  run_once: true
+
+- name: Append team members to wireguard_clients
+  set_fact:
+    wireguard_clients: "{{ wireguard_clients + [{'name': item.name, 'ip': '10.10.10.' ~ (11 + idx)}] }}"
+  loop: "{{ k8s_team_members | default([]) }}"
+  loop_control:
+    index_var: idx
+  run_once: true
+
+- name: Set wireguard_client_names for key generation
+  set_fact:
+    wireguard_client_names: "{{ wireguard_clients | map(attribute='name') | list }}"
+  run_once: true
+
+- name: Install WireGuard
+  apt:
+    name:
+      - wireguard
+      - wireguard-tools
+    state: present
+    update_cache: true
+
+- name: Ensure keys directory exists on node1
+  file:
+    path: /etc/wireguard/keys
+    state: directory
+    mode: '0700'
+  when: inventory_hostname == 'node1'
+
+- name: Generate all WireGuard keys on node1
+  shell: |
+    set -e
+    KEYS=/etc/wireguard/keys
+    for name in server node2 {{ wireguard_client_names | join(' ') }}; do
+      [ -f "$KEYS/$name.priv" ] || { wg genkey | tee "$KEYS/$name.priv" | wg pubkey > "$KEYS/$name.pub"; }
+    done
+  args:
+    executable: /bin/bash
+  when: inventory_hostname == 'node1'
+
+- name: Read WireGuard keys on node1
+  slurp:
+    src: "/etc/wireguard/keys/{{ item }}.priv"
+  register: wg_priv_keys
+  loop: "{{ ['server', 'node2'] + wireguard_client_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when: inventory_hostname == 'node1'
+
+- name: Read WireGuard pub keys on node1
+  slurp:
+    src: "/etc/wireguard/keys/{{ item }}.pub"
+  register: wg_pub_keys
+  loop: "{{ ['server', 'node2'] + wireguard_client_names }}"
+  loop_control:
+    label: "{{ item }}"
+  when: inventory_hostname == 'node1'
+
+- name: Set WireGuard key facts on node1
+  set_fact:
+    wg_server_priv: "{{ (wg_priv_keys.results | selectattr('item', 'equalto', 'server') | first).content | b64decode | trim }}"
+    wg_server_pub: "{{ (wg_pub_keys.results | selectattr('item', 'equalto', 'server') | first).content | b64decode | trim }}"
+    wg_node2_priv: "{{ (wg_priv_keys.results | selectattr('item', 'equalto', 'node2') | first).content | b64decode | trim }}"
+    wg_node2_pub: "{{ (wg_pub_keys.results | selectattr('item', 'equalto', 'node2') | first).content | b64decode | trim }}"
+  when: inventory_hostname == 'node1'
+
+- name: Initialize wg_peers with node2
+  set_fact:
+    wg_peers:
+      - public_key: "{{ wg_node2_pub }}"
+        allowed_ips: "{{ wireguard_node2_ip }}/32"
+  when: inventory_hostname == 'node1'
+
+- name: Append clients to wg_peers
+  set_fact:
+    wg_peers: "{{ wg_peers + [{'public_key': (wg_pub_keys.results | selectattr('item', 'equalto', item.name) | first).content | b64decode | trim, 'allowed_ips': item.ip + '/32'}] }}"
+  loop: "{{ wireguard_clients | selectattr('name', 'ne', 'node2') }}"
+  when: inventory_hostname == 'node1'
+
+- name: Build node1 server config
+  template:
+    src: wg-server.conf.j2
+    dest: /etc/wireguard/{{ wireguard_interface }}.conf
+    mode: '0600'
+  vars:
+    wg_server_private_key: "{{ wg_server_priv }}"
+  when: inventory_hostname == 'node1'
+  notify: restart wireguard
+
+- name: Build node2 config on node1
+  template:
+    src: wg-node2.conf.j2
+    dest: /tmp/wg-node2.conf
+    mode: '0600'
+  vars:
+    wg_node2_private_key: "{{ wg_node2_priv }}"
+    wg_server_public_key: "{{ wg_server_pub }}"
+  when: inventory_hostname == 'node1'
+
+- name: Build client configs on node1
+  template:
+    src: wg-client.conf.j2
+    dest: "/tmp/wg-{{ item.name }}.conf"
+    mode: '0600'
+  loop: "{{ wireguard_clients }}"
+  vars:
+    client_name: "{{ item.name }}"
+    client_ip: "{{ item.ip }}"
+    client_private_key: "{{ (wg_priv_keys.results | selectattr('item', 'equalto', item.name) | first).content | b64decode | trim }}"
+    wg_server_public_key: "{{ wg_server_pub }}"
+  when:
+    - inventory_hostname == 'node1'
+    - item.name != 'node2'
+
+- name: Start WireGuard on node1
+  systemd:
+    name: wg-quick@{{ wireguard_interface }}
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  when: inventory_hostname == 'node1'
+
+- name: Ensure wireguard configs output directory exists locally
+  file:
+    path: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: inventory_hostname == 'node1'
+
+- name: Fetch node2 WireGuard config from node1
+  fetch:
+    src: /tmp/wg-node2.conf
+    dest: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}/"
+    flat: true
+  when: inventory_hostname == 'node1'
+
+- name: Fetch client configs from node1
+  fetch:
+    src: "/tmp/wg-{{ item.name }}.conf"
+    dest: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}/"
+    flat: true
+  loop: "{{ wireguard_clients }}"
+  when:
+    - inventory_hostname == 'node1'
+    - item.name != 'node2'
+
+- name: Deploy node2 WireGuard config
+  copy:
+    src: "{{ playbook_dir }}/../{{ wireguard_configs_output_dir }}/wg-node2.conf"
+    dest: /etc/wireguard/{{ wireguard_interface }}.conf
+    mode: '0600'
+  when: inventory_hostname == 'node2'
+  notify: restart wireguard
+
+- name: Start WireGuard on node2
+  systemd:
+    name: wg-quick@{{ wireguard_interface }}
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  when: inventory_hostname == 'node2'

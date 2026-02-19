@@ -1,0 +1,185 @@
+# roles/k3s_server/tasks/main.yml
+---
+# ── Initialize cluster on first control plane node ──
+- name: Set K3s addresses (WireGuard or public IPs)
+  set_fact:
+    k3s_node_ip: "{{ (wireguard_node1_ip if inventory_hostname == 'node1' else wireguard_node2_ip) if (wireguard_enabled | default(false)) else (node1_ip if inventory_hostname == 'node1' else node2_ip) }}"
+    k3s_server_address: "{{ wireguard_node1_ip if (wireguard_enabled | default(false)) else node1_ip }}"
+    k3s_tls_sans: "{{ [wireguard_node1_ip, wireguard_node2_ip] if (wireguard_enabled | default(false)) else [node1_ip, node2_ip] }}"
+
+- name: Check if K3s is already installed
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Uninstall K3s (force reinstall on all nodes)
+  command: /usr/local/bin/k3s-uninstall.sh
+  when:
+    - k3s_force_reinstall | default(false) | bool
+    - k3s_binary.stat.exists
+  register: k3s_uninstall
+  changed_when: k3s_uninstall.rc == 0
+  failed_when: false
+
+- name: Re-check K3s binary after uninstall
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary_recheck
+  when: k3s_force_reinstall | default(false) | bool
+
+- name: Install K3s on init node (node1)
+  shell: |
+    curl -sfL https://get.k3s.io | sh -s - server \
+      --cluster-init \
+      --node-ip {{ k3s_node_ip }} \
+      --advertise-address {{ k3s_node_ip }} \
+      --etcd-arg=initial-advertise-peer-urls=https://{{ k3s_node_ip }}:2380 \
+      --etcd-arg=advertise-client-urls=https://{{ k3s_node_ip }}:2379 \
+      {% for san in k3s_tls_sans %}--tls-san {{ san }} {% endfor %}\
+      --node-name {{ inventory_hostname }} \
+      --disable traefik \
+      --disable servicelb \
+      --disable-cloud-controller \
+      --etcd-expose-metrics true \
+      --kube-apiserver-arg='audit-log-path=/var/log/k3s-audit.log' \
+      --kube-apiserver-arg='audit-log-maxage=7' \
+      --kube-apiserver-arg='audit-log-maxsize=100' \
+      --write-kubeconfig-mode=644
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    K3S_TOKEN: "{{ k3s_token }}"
+  when:
+    - k3s_init_cluster | bool
+    - (not k3s_force_reinstall | default(false) | bool and not k3s_binary.stat.exists) or (k3s_force_reinstall | default(false) | bool and not k3s_binary_recheck.stat.exists)
+  register: k3s_init_result
+
+- name: Wait for K3s to be ready on init node
+  wait_for:
+    path: /var/lib/rancher/k3s/server/node-token
+    timeout: 120
+  when: k3s_init_cluster | bool
+
+- name: Wait for K3s API to be available
+  wait_for:
+    host: 127.0.0.1
+    port: "{{ k3s_api_port }}"
+    timeout: 120
+  when: k3s_init_cluster | bool
+
+# ── Join additional control plane nodes ─────────────
+- name: Install K3s on additional control plane nodes
+  shell: |
+    curl -sfL https://get.k3s.io | sh -s - server \
+      --server https://{{ k3s_server_address }}:{{ k3s_api_port }} \
+      --node-ip {{ k3s_node_ip }} \
+      --advertise-address {{ k3s_node_ip }} \
+      --etcd-arg=initial-advertise-peer-urls=https://{{ k3s_node_ip }}:2380 \
+      --etcd-arg=advertise-client-urls=https://{{ k3s_node_ip }}:2379 \
+      {% for san in k3s_tls_sans %}--tls-san {{ san }} {% endfor %}\
+      --node-name {{ inventory_hostname }} \
+      --disable traefik \
+      --disable servicelb \
+      --disable-cloud-controller \
+      --write-kubeconfig-mode=644
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    K3S_TOKEN: "{{ k3s_token }}"
+  when:
+    - not k3s_init_cluster | bool
+    - (not k3s_force_reinstall | default(false) | bool and not k3s_binary.stat.exists) or (k3s_force_reinstall | default(false) | bool and not k3s_binary_recheck.stat.exists)
+
+- name: Wait for all nodes to join
+  pause:
+    seconds: 30
+  when: not k3s_init_cluster | bool
+
+# ── Configure kubectl for deploy user ───────────────
+- name: Create .kube directory for deploy user
+  file:
+    path: "/home/{{ deploy_user }}/.kube"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0750'
+
+- name: Copy kubeconfig to deploy user
+  copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "/home/{{ deploy_user }}/.kube/config"
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: '0600'
+    remote_src: yes
+
+- name: Set KUBECONFIG in deploy user profile
+  lineinfile:
+    path: "/home/{{ deploy_user }}/.bashrc"
+    line: 'export KUBECONFIG=~/.kube/config'
+    state: present
+
+# ── Ensure K3s systemd service auto-starts ──────────
+- name: Enable K3s service (auto-start on boot)
+  systemd:
+    name: k3s
+    enabled: yes
+    state: started
+
+- name: Verify K3s service is healthy
+  command: systemctl is-active k3s
+  register: k3s_status
+  failed_when: k3s_status.stdout != "active"
+
+# ── Set up etcd backup timer ─────────────────────────
+- name: Create etcd backup script
+  copy:
+    dest: /usr/local/bin/k3s-etcd-backup.sh
+    mode: '0755'
+    content: |
+      #!/bin/bash
+      # K3s etcd backup script - managed by Ansible
+      BACKUP_DIR=/var/backups/k3s
+      DATE=$(date +%Y%m%d-%H%M%S)
+      mkdir -p $BACKUP_DIR
+      /usr/local/bin/k3s etcd-snapshot save --name etcd-$DATE
+      # Keep only last 7 snapshots
+      ls -t /var/lib/rancher/k3s/server/db/snapshots/ | \
+        tail -n +8 | xargs -I{} rm /var/lib/rancher/k3s/server/db/snapshots/{}
+      echo "[$(date)] Backup complete: etcd-$DATE" >> /var/log/k3s-backup.log
+  when: k3s_init_cluster | bool
+
+- name: Create etcd backup systemd service
+  copy:
+    dest: /etc/systemd/system/k3s-etcd-backup.service
+    content: |
+      [Unit]
+      Description=K3s etcd snapshot backup
+      After=k3s.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/k3s-etcd-backup.sh
+      User=root
+  when: k3s_init_cluster | bool
+
+- name: Create etcd backup systemd timer (daily at 2am)
+  copy:
+    dest: /etc/systemd/system/k3s-etcd-backup.timer
+    content: |
+      [Unit]
+      Description=K3s etcd daily backup timer
+
+      [Timer]
+      OnCalendar=*-*-* 02:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  when: k3s_init_cluster | bool
+
+- name: Enable and start etcd backup timer
+  systemd:
+    name: k3s-etcd-backup.timer
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: k3s_init_cluster | bool

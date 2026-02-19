@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ server_name }}
+  namespace: {{ test_namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ server_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ server_name }}
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: node1
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:latest
+          args: ["-text=ok", "-listen=:8080"]
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ server_name }}
+  namespace: {{ test_namespace }}
+spec:
+  selector:
+    app: {{ server_name }}
+  ports:
+    - port: 8080
+      targetPort: 8080

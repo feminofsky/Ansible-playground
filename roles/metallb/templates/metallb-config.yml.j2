@@ -1,0 +1,24 @@
+# roles/metallb/templates/metallb-config.yml.j2
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: contabo-pool
+  namespace: metallb-system
+spec:
+  addresses:
+  - {{ metallb_ip_pool }}
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: contabo-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+  - contabo-pool
+  nodeSelectors:
+  - matchLabels:
+      kubernetes.io/hostname: node1
+  - matchLabels:
+      kubernetes.io/hostname: node2

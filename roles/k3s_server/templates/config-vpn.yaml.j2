@@ -1,0 +1,12 @@
+# VPN overrides - merged with main K3s config
+# Placed in /etc/rancher/k3s/config.yaml.d/99-vpn.yaml
+node-ip: {{ k3s_node_ip }}
+tls-san:
+  - {{ wireguard_node1_ip }}
+  - {{ wireguard_node2_ip }}
+{% if k3s_server_url is defined %}
+server: {{ k3s_server_url }}
+{% endif %}
+{% if k3s_advertise_address is defined %}
+advertise-address: {{ k3s_advertise_address }}
+{% endif %}

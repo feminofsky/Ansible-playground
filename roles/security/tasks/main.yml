@@ -1,0 +1,241 @@
+# roles/security/tasks/main.yml
+---
+- name: Harden SSH configuration
+  template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: '0600'
+    validate: sshd -t -f %s
+  # No notify — restart only at end, after deploy password is set (avoids lockout on failure)
+
+- name: Ensure SSH service is running
+  systemd:
+    name: "{{ ssh_service }}"
+    state: started
+    enabled: yes
+
+- name: Configure UFW defaults
+  ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+# Public access: ONLY SSH (2222), HTTP (80), HTTPS (443). K3s/etcd/etc. only from VPN.
+- name: Allow public ports (SSH, Traefik)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ [ssh_port, 80, 443] }}"
+
+# Remove legacy global allows (these ports are now restricted to cluster nodes only)
+- name: Remove legacy global allow for K3s API port
+  command: ufw delete allow {{ k3s_api_port }}/tcp
+  register: _legacy_delete
+  changed_when: _legacy_delete.rc == 0
+  failed_when: false
+
+- name: Remove legacy global allow for etcd ports
+  command: ufw delete allow 2379:2380/tcp
+  register: _legacy_delete
+  changed_when: _legacy_delete.rc == 0
+  failed_when: false
+
+- name: Remove legacy global allow for Flannel VXLAN
+  command: ufw delete allow 8472/udp
+  register: _legacy_delete
+  changed_when: _legacy_delete.rc == 0
+  failed_when: false
+
+- name: Remove legacy global allow for Kubelet metrics
+  command: ufw delete allow 10250/tcp
+  register: _legacy_delete
+  changed_when: _legacy_delete.rc == 0
+  failed_when: false
+
+- name: Remove legacy global allow for MetalLB L2 (tcp)
+  command: ufw delete allow 7946/tcp
+  register: _legacy_delete
+  changed_when: _legacy_delete.rc == 0
+  failed_when: false
+
+- name: Remove legacy global allow for MetalLB L2 (udp)
+  command: ufw delete allow 7946/udp
+  register: _legacy_delete
+  changed_when: _legacy_delete.rc == 0
+  failed_when: false
+
+# Allow forwarded pod traffic (cross-node communication); required for K3s pod network
+- name: Enable UFW forward policy for K3s pod network
+  lineinfile:
+    path: /etc/default/ufw
+    regexp: '^DEFAULT_FORWARD_POLICY='
+    line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+  notify: reload ufw
+
+- name: Allow K3s pod and service CIDR forwarding
+  command: "ufw route allow from {{ item }}"
+  loop:
+    - 10.42.0.0/16
+    - 10.43.0.0/16
+  register: _route_allow
+  changed_when: _route_allow.rc == 0
+  failed_when: false
+
+# Allow all traffic from cluster nodes (covers etcd, Kubelet, MetalLB, Flannel, K3s API inter-node)
+# When WireGuard enabled, cluster traffic uses VPN IPs — allow wireguard_subnet
+- name: Allow all traffic from cluster nodes
+  ufw:
+    rule: allow
+    src: "{{ item }}"
+  loop: "{{ wireguard_allowed_sources }}"
+
+# WireGuard: optional public access so clients can connect from internet
+- name: Allow WireGuard port on node1 (public)
+  ufw:
+    rule: allow
+    port: "{{ wireguard_port | default(51820) }}"
+    proto: udp
+  when: >-
+    inventory_hostname == 'node1'
+    and (wireguard_enabled | default(false))
+    and (wireguard_allow_public | default(true))
+
+# K3s API (6443): when WireGuard, only VPN subnet; else use k3s_api_allowed_ips
+- name: Allow K3s API from admin IPs
+  ufw:
+    rule: allow
+    port: "{{ k3s_api_port }}"
+    proto: tcp
+    src: "{{ item }}"
+  loop: "{{ k3s_api_allowed_sources }}"
+  when: k3s_api_allowed_sources | default([]) | length > 0
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+
+- name: Configure Fail2Ban jail
+  template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+
+- name: Enable and start Fail2Ban
+  systemd:
+    name: fail2ban
+    state: started
+    enabled: yes
+
+- name: Ensure vault secrets are loaded (run with --ask-vault-pass)
+  assert:
+    that: vault_deploy_password is defined
+    fail_msg: >-
+      vault_deploy_password is undefined. Run the playbook with --ask-vault-pass
+      and ensure inventory/group_vars/all/vault.yml contains:
+        vault_deploy_password: "your-password"
+      Edit with: ansible-vault edit inventory/group_vars/all/vault.yml
+
+- name: Set deploy user password (hashed)
+  user:
+    name: "{{ deploy_user }}"
+    password: "{{ deploy_password | password_hash('sha512') }}"
+    update_password: always
+
+- name: Verify deploy user before disabling root
+  block:
+    - name: Verify deploy user exists
+      command: getent passwd {{ deploy_user }}
+      register: getent_result
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if deploy user does not exist
+      fail:
+        msg: "Deploy user {{ deploy_user }} does not exist. Run common role first."
+      when: getent_result.rc != 0
+
+    - name: Get deploy user home directory
+      set_fact:
+        deploy_home: "{{ getent_result.stdout.split(':')[5] }}"
+
+    - name: Verify deploy has SSH authorized_keys
+      stat:
+        path: "{{ deploy_home }}/.ssh/authorized_keys"
+      register: deploy_authkeys
+
+    - name: Fail if deploy has no SSH key
+      fail:
+        msg: "{{ deploy_user }} has no ~/.ssh/authorized_keys — SSH key login will fail. Run common role first."
+      when: not deploy_authkeys.stat.exists
+
+    - name: Verify deploy authorized_keys contains our public key
+      slurp:
+        src: "{{ deploy_home }}/.ssh/authorized_keys"
+      register: deploy_authkeys_content
+
+    - name: Fail if SSH key mismatch
+      fail:
+        msg: "{{ deploy_user }} authorized_keys does not contain the expected key. Re-run common role."
+      when:
+        - ssh_public_key is defined
+        - ssh_public_key | length > 0
+        - (ssh_public_key.split() | length) >= 2
+        - ssh_public_key.split()[1] not in (deploy_authkeys_content.content | b64decode | string)
+
+    - name: Verify deploy user can execute commands
+      command: sudo -u {{ deploy_user }} id -un
+      register: deploy_id
+      changed_when: false
+
+    - name: Fail if deploy cannot execute
+      fail:
+        msg: "{{ deploy_user }} cannot execute commands (sudo may be misconfigured)"
+      when: deploy_id.stdout != deploy_user
+
+    - name: Deploy user verified — safe to disable root
+      debug:
+        msg: "{{ deploy_user }} verified: exists, has SSH key, can execute. Proceeding to disable root."
+
+- name: Lock root account
+  user:
+    name: root
+    password_lock: yes
+
+- name: Disable root SSH login via PAM
+  lineinfile:
+    path: /etc/pam.d/sshd
+    line: "auth required pam_listfile.so item=user sense=deny file=/etc/ssh/deniedusers onerr=succeed"
+    state: present
+
+- name: Ensure root in denied users for SSH
+  lineinfile:
+    path: /etc/ssh/deniedusers
+    line: root
+    create: yes
+    owner: root
+    group: root
+    mode: '0600'
+
+# Restart SSH last — only after deploy password is set, to avoid lockout on vault failure
+- name: Restart SSH to apply hardened config
+  systemd:
+    name: "{{ ssh_service }}"
+    state: restarted
+
+- name: Mark bootstrap as complete (enables skip on subsequent site.yml runs)
+  file:
+    path: /etc/ansible
+    state: directory
+    mode: '0755'
+- name: Create bootstrap-complete marker
+  file:
+    path: /etc/ansible/bootstrap-complete
+    state: touch
