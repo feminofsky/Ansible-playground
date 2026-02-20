@@ -70,6 +70,10 @@ When connected to WireGuard, these URLs are available at `*.blumefy.local`:
 | https://traefik.blumefy.local/dashboard/ | Traefik | Ingress controller dashboard; routes, services, TLS |
 | https://argocd.blumefy.local | Argo CD | GitOps deployment UI; sync apps from GitHub |
 | https://infisical.blumefy.local | Infisical | Secrets management; store and inject secrets into apps |
+| https://rabbitmq-dev.blumefy.local | RabbitMQ (Dev) | Message broker management UI — dev namespace |
+| https://rabbitmq.blumefy.local | RabbitMQ (Prod) | Message broker management UI — prod namespace |
+| https://redis-dev.blumefy.local | Redis (Dev) | Redis Commander — browse keys, CLI |
+| https://redis.blumefy.local | Redis (Prod) | Redis Commander — browse keys, CLI |
 | metallb.blumefy.local | MetalLB | (No web UI; host resolves for kubectl / status checks) |
 
 **Note:** Traefik dashboard requires the trailing slash: `/dashboard/`

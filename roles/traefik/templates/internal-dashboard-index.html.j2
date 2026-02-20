@@ -120,10 +120,23 @@
     a.card.traefik .icon { background: rgba(37, 99, 235, 0.2); }
     a.card.argocd .icon { background: rgba(49, 204, 130, 0.2); }
     a.card.infisical .icon { background: rgba(168, 85, 247, 0.2); }
+    a.card.rabbitmq .icon { background: rgba(255, 152, 0, 0.2); }
+    a.card.redis .icon { background: rgba(220, 53, 69, 0.2); }
     .card h2 { font-size: 1.1rem; font-weight: 600; color: #fff; }
     .card p { font-size: 0.85rem; color: #71717a; }
     .card.static { cursor: default; opacity: 0.85; }
     .card.static .icon { background: rgba(113, 113, 122, 0.2); }
+    .grid .section-label {
+      grid-column: 1 / -1;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #71717a;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-top: 0.5rem;
+      padding-bottom: 0.25rem;
+    }
+    .grid .section-label:first-child { margin-top: 0; }
 
     .dashboard-view {
       display: none;
@@ -191,6 +204,16 @@
     }
     .nav-item.static { cursor: default; }
     .nav-item.static .ext { display: none; }
+    .nav-section-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #71717a;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.75rem 1.25rem 0.25rem;
+      margin-top: 0.25rem;
+    }
+    .nav-section-label:first-child { margin-top: 0; }
     .dashboard-frame {
       flex: 1;
       min-width: 0;
@@ -231,6 +254,29 @@
         <h2>Infisical</h2>
         <p>Secrets management</p>
       </a>
+      <span class="section-label">RabbitMQ</span>
+      <a href="https://rabbitmq-dev.{{ vpn_internal_domain | default('blumefy.local') }}" class="card rabbitmq" target="_blank" rel="noopener noreferrer">
+        <span class="icon">🐰</span>
+        <h2>RabbitMQ (Dev)</h2>
+        <p>Message broker — dev</p>
+      </a>
+      <a href="https://rabbitmq.{{ vpn_internal_domain | default('blumefy.local') }}" class="card rabbitmq" target="_blank" rel="noopener noreferrer">
+        <span class="icon">🐰</span>
+        <h2>RabbitMQ (Prod)</h2>
+        <p>Message broker — prod</p>
+      </a>
+      <span class="section-label">Redis</span>
+      <a href="https://redis-dev.{{ vpn_internal_domain | default('blumefy.local') }}" class="card redis" target="_blank" rel="noopener noreferrer">
+        <span class="icon">📦</span>
+        <h2>Redis (Dev)</h2>
+        <p>Redis viewer — dev</p>
+      </a>
+      <a href="https://redis.{{ vpn_internal_domain | default('blumefy.local') }}" class="card redis" target="_blank" rel="noopener noreferrer">
+        <span class="icon">📦</span>
+        <h2>Redis (Prod)</h2>
+        <p>Redis viewer — prod</p>
+      </a>
+      <span class="section-label">Other</span>
       <div class="card static">
         <span class="icon">☸</span>
         <h2>MetalLB</h2>
@@ -256,6 +302,25 @@
         <span class="label">🔐 Infisical</span>
         <span class="ext" title="Open in new tab">↗</span>
       </a>
+      <div class="nav-section-label">RabbitMQ</div>
+      <a href="#" class="nav-item" data-app="rabbitmq-dev" data-url="https://rabbitmq-dev.{{ vpn_internal_domain | default('blumefy.local') }}" data-embed="true" data-label="RabbitMQ (Dev)">
+        <span class="label">🐰 RabbitMQ (Dev)</span>
+        <span class="ext" title="Open in new tab">↗</span>
+      </a>
+      <a href="#" class="nav-item" data-app="rabbitmq-prod" data-url="https://rabbitmq.{{ vpn_internal_domain | default('blumefy.local') }}" data-embed="true" data-label="RabbitMQ (Prod)">
+        <span class="label">🐰 RabbitMQ (Prod)</span>
+        <span class="ext" title="Open in new tab">↗</span>
+      </a>
+      <div class="nav-section-label">Redis</div>
+      <a href="#" class="nav-item" data-app="redis-dev" data-url="https://redis-dev.{{ vpn_internal_domain | default('blumefy.local') }}" data-embed="false" data-label="Redis (Dev)">
+        <span class="label">📦 Redis (Dev)</span>
+        <span class="ext" title="Open in new tab">↗</span>
+      </a>
+      <a href="#" class="nav-item" data-app="redis-prod" data-url="https://redis.{{ vpn_internal_domain | default('blumefy.local') }}" data-embed="false" data-label="Redis (Prod)">
+        <span class="label">📦 Redis (Prod)</span>
+        <span class="ext" title="Open in new tab">↗</span>
+      </a>
+      <div class="nav-section-label">Other</div>
       <div class="nav-item static" data-app="metallb">
         <span class="label">☸ MetalLB</span>
       </div>

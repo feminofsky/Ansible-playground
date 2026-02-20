@@ -96,7 +96,7 @@
     --values /tmp/traefik-values.yml
     --version {{ traefik_version }}
     --wait
-    --timeout 5m
+    --timeout {{ traefik_helm_wait_timeout | default('10m') }}
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -229,6 +229,26 @@
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+    - name: Create TLS secret for VPN internal (dev namespace, RabbitMQ)
+      when: vpn_internal_ui_enabled | default(false)
+      shell: >
+        kubectl create secret tls tls-blumefy-local
+        --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
+        -n {{ dev_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create TLS secret for VPN internal (prod namespace, RabbitMQ)
+      when: vpn_internal_ui_enabled | default(false)
+      shell: >
+        kubectl create secret tls tls-blumefy-local
+        --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
+        -n {{ prod_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
     - name: Remove temp cert files
       file:
         path: "{{ item }}"
@@ -274,9 +294,17 @@
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- name: Apply VPN-only IngressRoutes (dashboard, traefik, argocd, infisical)
+- name: Apply VPN-only IngressRoutes (dashboard, traefik, argocd, infisical, rabbitmq)
   when: vpn_internal_ui_enabled | default(false)
   block:
+    - name: Remove old RabbitMQ IngressRoutes from traefik namespace (moved to dev/prod)
+      command: >
+        kubectl delete ingressroute rabbitmq-dev-vpn rabbitmq-prod-vpn
+        -n {{ traefik_namespace }} --ignore-not-found=true
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
     - name: Template VPN IngressRoutes
       template:
         src: ingressroute-vpn-internal.yml.j2

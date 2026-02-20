@@ -57,6 +57,7 @@ metallb_ip_pool: "{{ node1_ip }}/32"
 # ─── Traefik ────────────────────────────────────────
 traefik_version: "39.0.1"   # Helm chart version (Traefik v3)
 traefik_namespace: traefik
+traefik_helm_wait_timeout: "10m"   # Helm --wait timeout; increase if upgrade times out (e.g. slow image pull)
 traefik_crd_api_group: traefik.io   # v3 uses traefik.io; v2 used traefik.containo.us
 traefik_replicas: 1          # 1 replica: PVC is ReadWriteOnce, can't spread across nodes
 traefik_dashboard_exposed: false   # Set true when vpn_internal_ui_enabled
@@ -167,11 +168,15 @@ namespace_stacks:
 # Exposed via Traefik with IP allowlist to wireguard_subnet only. Self-signed TLS.
 # Run add-vpn-hosts.sh in wireguard-configs/ when connecting.
 vpn_internal_hosts:
-  - dashboard.blumefy.local  # Internal apps landing page
+  - dashboard.blumefy.local   # Internal apps landing page
   - traefik.blumefy.local    # Traefik dashboard
   - argocd.blumefy.local     # Argo CD UI
-  - infisical.blumefy.local   # Infisical UI
-  - metallb.blumefy.local     # MetalLB has no UI; host resolves for convenience
+  - infisical.blumefy.local  # Infisical UI
+  - rabbitmq-dev.blumefy.local  # RabbitMQ Management — dev
+  - rabbitmq.blumefy.local   # RabbitMQ Management — prod
+  - redis-dev.blumefy.local  # Redis Commander UI — dev
+  - redis.blumefy.local      # Redis Commander UI — prod
+  - metallb.blumefy.local    # MetalLB has no UI; host resolves for convenience
 
 # ─── Subdomains ─────────────────────────────────────
 # IngressRoutes for prod/dev apps. Set when you have matching K8s Services deployed.

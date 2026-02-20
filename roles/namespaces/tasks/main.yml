@@ -96,6 +96,40 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+# Redis Commander web UI (connects to redis-master in same namespace)
+- name: Template Redis Commander secret
+  template:
+    src: redis-commander-secret.yml.j2
+    dest: "/tmp/redis-commander-{{ item.name }}-secret.yml"
+  loop: "{{ namespace_stacks }}"
+  vars:
+    target_namespace: "{{ item.namespace }}"
+    redis_password: "{{ item.redis_password }}"
+
+- name: Template Redis Commander deployment and service
+  template:
+    src: redis-commander-deployment.yml.j2
+    dest: "/tmp/redis-commander-{{ item.name }}-deployment.yml"
+  loop: "{{ namespace_stacks }}"
+  vars:
+    target_namespace: "{{ item.namespace }}"
+
+- name: Apply Redis Commander secret
+  command: kubectl apply -f /tmp/redis-commander-{{ item.name }}-secret.yml
+  loop: "{{ namespace_stacks }}"
+  loop_control:
+    label: "{{ item.namespace }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Apply Redis Commander deployment and service
+  command: kubectl apply -f /tmp/redis-commander-{{ item.name }}-deployment.yml
+  loop: "{{ namespace_stacks }}"
+  loop_control:
+    label: "{{ item.namespace }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
 - name: Wait for RabbitMQ pods
   command: >
     kubectl wait pod -l app.kubernetes.io/name=rabbitmq
@@ -111,6 +145,7 @@
     msg: |
       {{ item.namespace }} namespace:
       - Redis: kubectl port-forward -n {{ item.namespace }} svc/redis-master 6379:6379
+      - Redis Commander: https://redis-dev.blumefy.local (dev) or https://redis.blumefy.local (prod) — VPN only
       - RabbitMQ: kubectl port-forward -n {{ item.namespace }} svc/rabbitmq 5672:5672 15672:15672
         (Management UI: http://localhost:15672 — user: {{ item.rabbitmq_user }}, pass: <from vault>)
   loop: "{{ namespace_stacks }}"

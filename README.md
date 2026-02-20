@@ -168,6 +168,10 @@ When `vpn_internal_ui_enabled: true` (default), Traefik exposes these UIs at `*.
 | https://traefik.blumefy.local/dashboard/ | Traefik dashboard |
 | https://argocd.blumefy.local | Argo CD UI |
 | https://infisical.blumefy.local | Infisical UI |
+| https://rabbitmq-dev.blumefy.local | RabbitMQ Management (dev) |
+| https://rabbitmq.blumefy.local | RabbitMQ Management (prod) |
+| https://redis-dev.blumefy.local | Redis viewer (dev) |
+| https://redis.blumefy.local | Redis viewer (prod) |
 | metallb.blumefy.local | MetalLB has no UI; host resolves for convenience |
 
 **Open Lens not working over VPN?** If you see a TLS/cert error, run `ansible-playbook playbooks/add-vpn-tls-san.yml` so the K3s API cert includes `10.10.10.1`.

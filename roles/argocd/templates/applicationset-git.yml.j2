@@ -27,6 +27,7 @@ spec:
           path: helm/base
           targetRevision: {{ argocd_gitops_repo_revision | default('main') | quote }}
           helm:
+            version: v3
             releaseName: '{{ "{{" }} replace "-values.yaml" "" .path.filename {{ "}}" }}'
             valueFiles:
               - '{{ "{{" }} printf "$values/services/%s/values.yaml" (replace "-values.yaml" "" .path.filename) {{ "}}" }}'
