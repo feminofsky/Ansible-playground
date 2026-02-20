@@ -297,13 +297,18 @@
 - name: Apply VPN-only IngressRoutes (dashboard, traefik, argocd, infisical, rabbitmq)
   when: vpn_internal_ui_enabled | default(false)
   block:
+    - name: Template legacy RabbitMQ IngressRoutes delete manifest
+      template:
+        src: ingressroute-vpn-remove-legacy-rabbitmq.yml.j2
+        dest: /tmp/ingressroute-vpn-remove-legacy-rabbitmq.yml
+
     - name: Remove old RabbitMQ IngressRoutes from traefik namespace (moved to dev/prod)
-      command: >
-        kubectl delete ingressroute rabbitmq-dev-vpn rabbitmq-prod-vpn
-        -n {{ traefik_namespace }} --ignore-not-found=true
+      command: kubectl delete -f /tmp/ingressroute-vpn-remove-legacy-rabbitmq.yml --ignore-not-found=true
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      changed_when: false
+      register: delete_legacy_rabbitmq
+      failed_when: false
+      changed_when: delete_legacy_rabbitmq.rc == 0 and 'deleted' in delete_legacy_rabbitmq.stdout
 
     - name: Template VPN IngressRoutes
       template:
