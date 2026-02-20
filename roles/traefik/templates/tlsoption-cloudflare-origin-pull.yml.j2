@@ -1,0 +1,12 @@
+# Require Cloudflare's client certificate on websecure (Authenticated Origin Pulls)
+# Only requests from Cloudflare will be accepted on 443.
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: cloudflare-origin-pull
+  namespace: {{ traefik_namespace }}
+spec:
+  clientAuth:
+    secretNames:
+      - cloudflare-origin-pull-ca
+    clientAuthType: RequireAndVerifyClientCert

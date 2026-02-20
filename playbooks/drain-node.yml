@@ -1,5 +1,6 @@
 # playbooks/drain-node.yml
-# Usage: ansible-playbook playbooks/drain-node.yml -i inventory/hosts.yml -e "target_node=node3"
+# Usage: ansible-playbook playbooks/drain-node.yml -i inventory/hosts.yml -e "target_node=node2"
+# Use a node that exists in your inventory (e.g. node1 or node2).
 ---
 - name: Drain a node safely
   hosts: node1

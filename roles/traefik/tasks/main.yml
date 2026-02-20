@@ -27,6 +27,63 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+# Cloudflare Authenticated Origin Pulls: secret + TLSOption (must exist before Helm so entrypoint can use it)
+- name: Set Cloudflare Origin Pull CA path (role files/)
+  set_fact:
+    _cf_origin_pull_ca_src: "{{ role_path }}/files/cloudflare-origin-pull-ca.pem"
+  when: traefik_cloudflare_origin_pull_enabled | default(false)
+
+- name: Check Cloudflare Origin Pull CA file exists
+  stat:
+    path: "{{ _cf_origin_pull_ca_src }}"
+  register: _cf_ca_file
+  when: traefik_cloudflare_origin_pull_enabled | default(false)
+
+- name: Fail when Authenticated Origin Pulls enabled but CA file missing
+  fail:
+    msg: "traefik_cloudflare_origin_pull_enabled is true but {{ _cf_origin_pull_ca_src }} not found. Download from Cloudflare and put in role files/."
+  when:
+    - traefik_cloudflare_origin_pull_enabled | default(false)
+    - not (_cf_ca_file.stat.exists | default(false))
+
+- name: Copy Cloudflare Origin Pull CA to target and create Secret
+  when:
+    - traefik_cloudflare_origin_pull_enabled | default(false)
+    - _cf_ca_file.stat.exists | default(false)
+  block:
+    - name: Copy Cloudflare Origin Pull CA to target
+      copy:
+        src: cloudflare-origin-pull-ca.pem
+        dest: /tmp/cloudflare-origin-pull-ca.pem
+        mode: '0600'
+
+    - name: Create Secret from Cloudflare Origin Pull CA
+      shell: >
+        kubectl create secret generic cloudflare-origin-pull-ca
+        --from-file=ca.crt=/tmp/cloudflare-origin-pull-ca.pem
+        -n {{ traefik_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Remove temp Cloudflare CA file
+      file:
+        path: /tmp/cloudflare-origin-pull-ca.pem
+        state: absent
+
+- name: Apply Cloudflare Origin Pull TLSOption
+  when: traefik_cloudflare_origin_pull_enabled | default(false)
+  block:
+    - name: Template Cloudflare Origin Pull TLSOption
+      template:
+        src: tlsoption-cloudflare-origin-pull.yml.j2
+        dest: /tmp/tlsoption-cloudflare-origin-pull.yml
+
+    - name: Apply Cloudflare Origin Pull TLSOption to cluster
+      command: kubectl apply -f /tmp/tlsoption-cloudflare-origin-pull.yml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
 - name: Template Traefik values
   template:
     src: traefik-values.yml.j2

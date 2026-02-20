@@ -1,6 +1,6 @@
 # roles/monitoring/templates/grafana-ingressroute.yml.j2
 ---
-apiVersion: traefik.io/v1alpha1
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
 kind: IngressRoute
 metadata:
   name: grafana-route
@@ -13,7 +13,7 @@ spec:
       kind: Rule
       middlewares:
         - name: security-headers
-          namespace: {{ traefik_namespace }}
+          namespace: {{ monitoring_namespace }}
       services:
         - name: prometheus-grafana
           port: 80

@@ -5,69 +5,323 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Blumefy Internal — Applications</title>
   <style>
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: system-ui, -apple-system, sans-serif;
-      margin: 0;
+      font-family: "Segoe UI", "SF Pro Display", system-ui, -apple-system, sans-serif;
       min-height: 100vh;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      color: #e8e8e8;
+      background: #0f0f12;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(212, 175, 55, 0.12), transparent),
+        radial-gradient(ellipse 60% 40% at 80% 100%, rgba(180, 140, 80, 0.06), transparent);
+      color: #e4e4e7;
+      line-height: 1.5;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+      max-width: 420px;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+    .subtitle {
+      font-size: 1rem;
+      color: #a1a1aa;
+      font-weight: 400;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 1rem;
+      padding: 0.35rem 0.75rem;
+      background: rgba(212, 175, 55, 0.15);
+      border: 1px solid rgba(212, 175, 55, 0.3);
+      border-radius: 999px;
+      font-size: 0.75rem;
+      color: #d4af37;
+    }
+    .badge::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      background: #22c55e;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #22c55e;
+    }
+    .view-toggle {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-top: 1rem;
+    }
+    .view-toggle button {
+      padding: 0.5rem 1rem;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.05);
+      color: #a1a1aa;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      transition: all 0.2s;
+    }
+    .view-toggle button:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+    .view-toggle button.active {
+      background: rgba(212, 175, 55, 0.2);
+      border-color: rgba(212, 175, 55, 0.4);
+      color: #d4af37;
+    }
+    .cards-view {
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 2rem;
+      padding: 0 2rem 3rem;
     }
-    h1 {
-      font-weight: 600;
-      font-size: 1.75rem;
-      margin-bottom: 0.5rem;
-      color: #fff;
-    }
-    .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 2rem; }
+    .cards-view.hidden { display: none; }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 1rem;
-      max-width: 720px;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1.25rem;
+      max-width: 800px;
     }
     a.card {
-      display: block;
-      padding: 1.25rem 1.5rem;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 1.5rem;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
       text-decoration: none;
       color: inherit;
-      transition: background 0.2s, border-color 0.2s;
+      transition: all 0.2s ease;
     }
     a.card:hover {
-      background: rgba(255,255,255,0.1);
-      border-color: rgba(255,255,255,0.2);
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(212, 175, 55, 0.25);
+      transform: translateY(-2px);
     }
-    .card h2 { font-size: 1rem; margin: 0 0 0.25rem 0; }
-    .card p { font-size: 0.8rem; color: #94a3b8; margin: 0; }
+    a.card .icon {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 10px;
+      font-size: 1.25rem;
+    }
+    a.card.traefik .icon { background: rgba(37, 99, 235, 0.2); }
+    a.card.argocd .icon { background: rgba(49, 204, 130, 0.2); }
+    a.card.infisical .icon { background: rgba(168, 85, 247, 0.2); }
+    .card h2 { font-size: 1.1rem; font-weight: 600; color: #fff; }
+    .card p { font-size: 0.85rem; color: #71717a; }
+    .card.static { cursor: default; opacity: 0.85; }
+    .card.static .icon { background: rgba(113, 113, 122, 0.2); }
+
+    .dashboard-view {
+      display: none;
+      height: 100vh;
+      flex-direction: row;
+    }
+    .dashboard-view.active {
+      display: flex;
+    }
+    .dashboard-sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      background: rgba(0,0,0,0.3);
+      border-right: 1px solid rgba(255,255,255,0.08);
+      padding: 1rem 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .dashboard-sidebar .logo {
+      padding: 0 1.25rem 1rem;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      margin-bottom: 0.5rem;
+    }
+    .dashboard-sidebar .logo h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #fff;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 1.25rem;
+      color: #a1a1aa;
+      text-decoration: none;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+      gap: 0.5rem;
+    }
+    .nav-item:hover {
+      background: rgba(255,255,255,0.04);
+      color: #fff;
+    }
+    .nav-item.active {
+      background: rgba(212, 175, 55, 0.1);
+      color: #d4af37;
+      border-left-color: #d4af37;
+    }
+    .nav-item .label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+    }
+    .nav-item .ext {
+      opacity: 0.5;
+      font-size: 0.75rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.06);
+    }
+    .nav-item .ext:hover {
+      opacity: 1;
+    }
+    .nav-item.static { cursor: default; }
+    .nav-item.static .ext { display: none; }
+    .dashboard-frame {
+      flex: 1;
+      min-width: 0;
+      background: #0a0a0c;
+    }
+    .dashboard-frame iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
   </style>
 </head>
 <body>
-  <h1>Blumefy Internal</h1>
-  <p class="subtitle">VPN-only applications</p>
-  <div class="grid">
-    <a href="https://traefik.{{ vpn_internal_domain | default('blumefy.local') }}/dashboard/" class="card">
-      <h2>Traefik</h2>
-      <p>Ingress dashboard</p>
-    </a>
-    <a href="https://argocd.{{ vpn_internal_domain | default('blumefy.local') }}" class="card">
-      <h2>Argo CD</h2>
-      <p>GitOps deployments</p>
-    </a>
-    <a href="https://infisical.{{ vpn_internal_domain | default('blumefy.local') }}" class="card">
-      <h2>Infisical</h2>
-      <p>Secrets management</p>
-    </a>
-    <div class="card" style="cursor:default; opacity:0.7;">
-      <h2>MetalLB</h2>
-      <p>No UI — use kubectl</p>
+  <div id="cardsView" class="cards-view">
+    <header class="header">
+      <h1>Blumefy Internal</h1>
+      <p class="subtitle">Your internal tools, one place.</p>
+      <span class="badge">Connected via VPN</span>
+      <div class="view-toggle">
+        <button type="button" data-view="cards" class="active">Quick launch</button>
+        <button type="button" data-view="dashboard">View in dashboard</button>
+      </div>
+    </header>
+    <div class="grid">
+      <a href="https://traefik.{{ vpn_internal_domain | default('blumefy.local') }}/dashboard/" class="card traefik" target="_blank" rel="noopener noreferrer">
+        <span class="icon">⚡</span>
+        <h2>Traefik</h2>
+        <p>Ingress, routes & TLS</p>
+      </a>
+      <a href="https://argocd.{{ vpn_internal_domain | default('blumefy.local') }}" class="card argocd" target="_blank" rel="noopener noreferrer">
+        <span class="icon">⎈</span>
+        <h2>Argo CD</h2>
+        <p>GitOps deployments</p>
+      </a>
+      <a href="https://infisical.{{ vpn_internal_domain | default('blumefy.local') }}" class="card infisical" target="_blank" rel="noopener noreferrer">
+        <span class="icon">🔐</span>
+        <h2>Infisical</h2>
+        <p>Secrets management</p>
+      </a>
+      <div class="card static">
+        <span class="icon">☸</span>
+        <h2>MetalLB</h2>
+        <p>Load balancer — use kubectl</p>
+      </div>
     </div>
   </div>
+
+  <div id="dashboardView" class="dashboard-view">
+    <aside class="dashboard-sidebar">
+      <div class="logo">
+        <h2>Blumefy</h2>
+      </div>
+      <a href="#" class="nav-item active" data-app="traefik" data-url="https://traefik.{{ vpn_internal_domain | default('blumefy.local') }}/dashboard/" data-embed="true" data-label="Traefik">
+        <span class="label">⚡ Traefik</span>
+        <span class="ext" title="Open in new tab">↗</span>
+      </a>
+      <a href="#" class="nav-item" data-app="argocd" data-url="https://argocd.{{ vpn_internal_domain | default('blumefy.local') }}" data-embed="false" data-label="Argo CD">
+        <span class="label">⎈ Argo CD</span>
+        <span class="ext" title="Open in new tab">↗</span>
+      </a>
+      <a href="#" class="nav-item" data-app="infisical" data-url="https://infisical.{{ vpn_internal_domain | default('blumefy.local') }}" data-embed="false" data-label="Infisical">
+        <span class="label">🔐 Infisical</span>
+        <span class="ext" title="Open in new tab">↗</span>
+      </a>
+      <div class="nav-item static" data-app="metallb">
+        <span class="label">☸ MetalLB</span>
+      </div>
+    </aside>
+    <div class="dashboard-frame">
+      <iframe id="appFrame" src="https://traefik.{{ vpn_internal_domain | default('blumefy.local') }}/dashboard/" title="Traefik"></iframe>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var cardsView = document.getElementById('cardsView');
+      var dashboardView = document.getElementById('dashboardView');
+      var frame = document.getElementById('appFrame');
+      var navItems = document.querySelectorAll('.nav-item[data-app]');
+
+      document.querySelectorAll('.view-toggle button').forEach(function(btn) {
+        btn.onclick = function() {
+          var v = this.dataset.view;
+          document.querySelector('.view-toggle button.active').classList.remove('active');
+          this.classList.add('active');
+          if (v === 'dashboard') {
+            cardsView.classList.add('hidden');
+            dashboardView.classList.add('active');
+          } else {
+            cardsView.classList.remove('hidden');
+            dashboardView.classList.remove('active');
+          }
+        };
+      });
+
+      function showPlaceholder(title, msg, openUrl) {
+        frame.removeAttribute('src');
+        var link = openUrl ? '<p style="margin-top:1rem"><a href="' + openUrl + '" target="_blank" rel="noopener noreferrer" style="color:#d4af37;text-decoration:none">Open in new tab →</a></p>' : '';
+        frame.srcdoc = '<!DOCTYPE html><html><body style="margin:0;background:#0f0f12;color:#a1a1aa;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh"><div style="text-align:center;max-width:320px"><p style="font-size:1.25rem;margin-bottom:0.5rem;color:#e4e4e7">' + title + '</p><p>' + msg + '</p>' + link + '</div></body></html>';
+      }
+
+      navItems.forEach(function(item) {
+        var ext = item.querySelector('.ext');
+        if (ext) {
+          ext.onclick = function(e) {
+            e.stopPropagation();
+            window.open(item.dataset.url, '_blank', 'noopener,noreferrer');
+          };
+        }
+        item.onclick = function(e) {
+          if (e.target.classList && e.target.classList.contains('ext')) return;
+          e.preventDefault();
+          var url = item.dataset.url;
+          var embed = item.dataset.embed === 'true';
+          var label = item.dataset.label || item.querySelector('.label').textContent.trim();
+          navItems.forEach(function(i) { i.classList.remove('active'); });
+          item.classList.add('active');
+          if (!url) {
+            showPlaceholder('☸ MetalLB', 'No web UI — use kubectl for status');
+          } else if (embed) {
+            frame.removeAttribute('srcdoc');
+            frame.setAttribute('src', url);
+            frame.title = label;
+          } else {
+            window.open(url, '_blank', 'noopener,noreferrer');
+            showPlaceholder(label, 'Opens in a new tab. This app blocks embedding for security.', url);
+          }
+        };
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -7,3 +7,6 @@ csi_secrets_store_namespace: kube-system
 # Install Infisical CSI Provider (required for SecretProviderClass with provider: infisical)
 infisical_csi_provider_enabled: true
 infisical_csi_provider_version: ""   # empty = latest
+
+# Namespaces where app-sa needs system:auth-delegator for Infisical Kubernetes auth (Option 2)
+infisical_k8s_auth_namespaces: "{{ argocd_projects | default(['dev', 'prod']) }}"

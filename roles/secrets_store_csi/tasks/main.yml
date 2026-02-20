@@ -63,3 +63,16 @@
     --timeout=120s
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+# Grant app-sa system:auth-delegator so Infisical can validate ServiceAccount JWTs (Kubernetes Auth Option 2)
+# Required: configure identity in Infisical UI with Allowed Service Account Names: app-sa, Allowed Namespaces: dev,prod
+- name: Grant app-sa TokenReview for Infisical Kubernetes auth (per namespace)
+  when: infisical_csi_provider_enabled | default(true) and (infisical_enabled | default(false))
+  shell: >
+    kubectl create clusterrolebinding infisical-token-reviewer-{{ item }}
+    --clusterrole=system:auth-delegator
+    --serviceaccount={{ item }}:app-sa
+    --dry-run=client -o yaml | kubectl apply -f -
+  loop: "{{ infisical_k8s_auth_namespaces }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml

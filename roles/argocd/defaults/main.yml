@@ -1,6 +1,6 @@
 ---
 argocd_namespace: argocd
-argocd_version: "8.2.1"    # Helm chart version (argo/argo-cd)
+argocd_version: "9.4.3"    # Helm chart version (argo/argo-cd) — Argo CD v3.x
 argocd_node: node1
 
 # AppProjects: dev, prod — each allows deploying to its namespace

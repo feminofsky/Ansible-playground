@@ -43,12 +43,52 @@
       changed_when: route_allow.rc == 0
       failed_when: false
 
-    - name: Allow public ports (SSH, Traefik)
+    - name: Allow SSH from anywhere
+      ufw:
+        rule: allow
+        port: "{{ ssh_port }}"
+        proto: tcp
+
+    # When switching to Cloudflare proxy: remove existing allow 80/443 from anywhere so only Cloudflare + VPN rules apply.
+    - name: Remove allow 80/443 from anywhere (when using Cloudflare proxy)
+      command: "ufw delete allow {{ item }}/tcp"
+      loop: [80, 443]
+      register: _ufw_delete_http
+      changed_when: _ufw_delete_http.rc == 0
+      failed_when: false
+      when: traefik_cloudflare_proxy_enabled | default(false)
+
+    # When Cloudflare proxy is in front of Traefik: allow 80/443 only from Cloudflare + VPN (internal *.blumefy.local). Else allow 80/443 from anywhere.
+    - name: Allow HTTP/HTTPS from anywhere (when not using Cloudflare proxy)
       ufw:
         rule: allow
         port: "{{ item }}"
         proto: tcp
-      loop: "{{ [ssh_port, 80, 443] }}"
+      loop: [80, 443]
+      when: not (traefik_cloudflare_proxy_enabled | default(false))
+
+    - name: Allow HTTP/HTTPS from Cloudflare IP ranges
+      ufw:
+        rule: allow
+        port: "{{ item[1] }}"
+        proto: tcp
+        src: "{{ item[0] }}"
+      with_nested:
+        - "{{ traefik_cloudflare_ip_ranges | default([]) }}"
+        - [80, 443]
+      when: traefik_cloudflare_proxy_enabled | default(false)
+
+    - name: Allow HTTP/HTTPS from VPN (for *.blumefy.local internal UIs)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+        src: "{{ wireguard_subnet }}"
+      loop: [80, 443]
+      when: >-
+        traefik_cloudflare_proxy_enabled | default(false)
+        and (wireguard_enabled | default(false))
+        and (inventory_hostname == 'node1')
 
     - name: Allow traffic from VPN / cluster
       ufw:

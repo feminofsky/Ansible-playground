@@ -92,8 +92,8 @@ ansible-playbook playbooks/site.yml \
 # Rolling update (K3s + OS) — zero downtime:
 ansible-playbook playbooks/update.yml -i inventory/hosts.yml --ask-vault-pass
 
-# Drain a specific node:
-ansible-playbook playbooks/drain-node.yml -i inventory/hosts.yml -e "target_node=node3"
+# Drain a specific node (use a node that exists in your inventory, e.g. node1 or node2):
+ansible-playbook playbooks/drain-node.yml -i inventory/hosts.yml -e "target_node=node2"
 
 # Refresh UFW (after adding WireGuard or changing firewall vars):
 ansible-playbook playbooks/refresh-ufw.yml -i inventory/hosts.yml
@@ -158,7 +158,9 @@ Run: `ansible-playbook playbooks/site.yml --tags wireguard,k8s_access` (or full 
 
 When `vpn_internal_ui_enabled: true` (default), Traefik exposes these UIs at `*.blumefy.local` **only** to WireGuard subnet. Uses self-signed TLS (accept once in browser).
 
-**Automatic DNS:** dnsmasq on node1 resolves `*.blumefy.local` when you're connected. Just connect to WireGuard and open **https://dashboard.blumefy.local** — no scripts or `/etc/hosts` needed. (Re-import your WireGuard config after running the playbook to get the DNS setting.)
+**Full guide:** See [docs/VPN_INTERNAL_DASHBOARD.md](docs/VPN_INTERNAL_DASHBOARD.md) for step-by-step connection, access, and troubleshooting.
+
+**Quick start:** Connect to WireGuard → run `sudo ./add-vpn-hosts.sh` from `wireguard-configs/` → open **https://dashboard.blumefy.local**. (Default config keeps your normal DNS for Open Lens and internet; hosts file only for `*.blumefy.local`.)
 
 | URL | Service |
 |-----|---------|
@@ -168,7 +170,7 @@ When `vpn_internal_ui_enabled: true` (default), Traefik exposes these UIs at `*.
 | https://infisical.blumefy.local | Infisical UI |
 | metallb.blumefy.local | MetalLB has no UI; host resolves for convenience |
 
-**Fallback** (if not using VPN DNS): Run `sudo ./add-vpn-hosts.sh` from `wireguard-configs/` to add hosts to `/etc/hosts`.
+**Open Lens not working over VPN?** If you see a TLS/cert error, run `ansible-playbook playbooks/add-vpn-tls-san.yml` so the K3s API cert includes `10.10.10.1`.
 
 ## Argo CD GitOps (GitHub → cluster)
 

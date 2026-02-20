@@ -24,13 +24,52 @@
     - { direction: incoming, policy: deny }
     - { direction: outgoing, policy: allow }
 
-# Public access: ONLY SSH (2222), HTTP (80), HTTPS (443). K3s/etcd/etc. only from VPN.
-- name: Allow public ports (SSH, Traefik)
+# Public access: SSH always; 80/443 from anywhere, or (when Cloudflare proxy) only from Cloudflare + VPN.
+- name: Allow SSH from anywhere
+  ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+
+# When using Cloudflare proxy: remove allow 80/443 from anywhere so only Cloudflare + VPN rules apply.
+- name: Remove allow 80/443 from anywhere (when using Cloudflare proxy)
+  command: "ufw delete allow {{ item }}/tcp"
+  loop: [80, 443]
+  register: _ufw_delete_http
+  changed_when: _ufw_delete_http.rc == 0
+  failed_when: false
+  when: traefik_cloudflare_proxy_enabled | default(false)
+
+- name: Allow HTTP/HTTPS from anywhere (when not using Cloudflare proxy)
   ufw:
     rule: allow
     port: "{{ item }}"
     proto: tcp
-  loop: "{{ [ssh_port, 80, 443] }}"
+  loop: [80, 443]
+  when: not (traefik_cloudflare_proxy_enabled | default(false))
+
+- name: Allow HTTP/HTTPS from Cloudflare IP ranges
+  ufw:
+    rule: allow
+    port: "{{ item[1] }}"
+    proto: tcp
+    src: "{{ item[0] }}"
+  with_nested:
+    - "{{ traefik_cloudflare_ip_ranges | default([]) }}"
+    - [80, 443]
+  when: traefik_cloudflare_proxy_enabled | default(false)
+
+- name: Allow HTTP/HTTPS from VPN (for *.blumefy.local internal UIs)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    src: "{{ wireguard_subnet }}"
+  loop: [80, 443]
+  when: >-
+    traefik_cloudflare_proxy_enabled | default(false)
+    and (wireguard_enabled | default(false))
+    and (inventory_hostname == 'node1')
 
 # Remove legacy global allows (these ports are now restricted to cluster nodes only)
 - name: Remove legacy global allow for K3s API port

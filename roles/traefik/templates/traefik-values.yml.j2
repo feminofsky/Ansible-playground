@@ -22,11 +22,22 @@ ports:
           to: websecure
           scheme: https
           permanent: true
+{% if traefik_cloudflare_proxy_enabled | default(false) %}
+    forwardedHeaders:
+      trustedIPs: {{ traefik_cloudflare_ip_ranges }}
+{% endif %}
   websecure:
     hostPort: 443
     http:
       tls:
         enabled: true
+{% if traefik_cloudflare_origin_pull_enabled | default(false) %}
+        options: cloudflare-origin-pull
+{% endif %}
+{% if traefik_cloudflare_proxy_enabled | default(false) %}
+    forwardedHeaders:
+      trustedIPs: {{ traefik_cloudflare_ip_ranges }}
+{% endif %}
 
 certificatesResolvers:
   letsencrypt:

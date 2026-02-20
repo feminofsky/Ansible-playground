@@ -1,18 +1,27 @@
 # playbooks/update.yml
-# Rolling update playbook — zero downtime
-# Usage: ansible-playbook playbooks/update.yml -i inventory/hosts.yml
+# Rolling update playbook — zero downtime.
+# Order: all control-plane nodes except the init node first, then init node last.
+# Uses update_init_node and update_other_nodes from group_vars (inventory-driven).
+# Works with 2 nodes (node2 then node1) or 3+ (others then node1).
+#
+# Usage: ansible-playbook playbooks/update.yml -i inventory/hosts.yml --ask-vault-pass
 ---
-
-- name: Rolling Update — node3 first
-  hosts: node3
+- name: Rolling Update — non-init nodes first
+  hosts: "{{ (groups['control_plane'] | difference([groups['control_plane'] | first]) | list) | join(',') }}"
   become: yes
   serial: 1
   vars:
     ansible_port: "{{ ssh_port }}"
+    update_init_node: "{{ groups['control_plane'] | first }}"
   tasks:
-    - name: Drain node3
-      command: kubectl drain node3 --ignore-daemonsets --delete-emptydir-data --timeout=120s
-      delegate_to: node1
+    - name: Show rolling update order
+      debug:
+        msg: "Draining and updating {{ inventory_hostname }} (non-init); {{ update_init_node }} will be last."
+      run_once: true
+
+    - name: Drain {{ inventory_hostname }}
+      command: kubectl drain {{ inventory_hostname }} --ignore-daemonsets --delete-emptydir-data --timeout=120s
+      delegate_to: "{{ update_init_node }}"
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -33,15 +42,15 @@
         name: k3s
         state: restarted
 
-    - name: Wait for node3 to be Ready
-      command: kubectl wait node/node3 --for=condition=Ready --timeout=120s
-      delegate_to: node1
+    - name: Wait for {{ inventory_hostname }} to be Ready
+      command: kubectl wait node/{{ inventory_hostname }} --for=condition=Ready --timeout=120s
+      delegate_to: "{{ update_init_node }}"
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-    - name: Uncordon node3
-      command: kubectl uncordon node3
-      delegate_to: node1
+    - name: Uncordon {{ inventory_hostname }}
+      command: kubectl uncordon {{ inventory_hostname }}
+      delegate_to: "{{ update_init_node }}"
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -49,15 +58,14 @@
       pause:
         seconds: 60
 
-- name: Rolling Update — node2
-  hosts: node2
+- name: Rolling Update — init node (last)
+  hosts: "{{ groups['control_plane'] | first }}"
   become: yes
   vars:
     ansible_port: "{{ ssh_port }}"
   tasks:
-    - name: Drain node2
-      command: kubectl drain node2 --ignore-daemonsets --delete-emptydir-data --timeout=120s
-      delegate_to: node1
+    - name: Drain {{ inventory_hostname }}
+      command: kubectl drain {{ inventory_hostname }} --ignore-daemonsets --delete-emptydir-data --timeout=120s
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
@@ -78,62 +86,18 @@
         name: k3s
         state: restarted
 
-    - name: Wait for node2 to be Ready
-      command: kubectl wait node/node2 --for=condition=Ready --timeout=120s
-      delegate_to: node1
+    - name: Wait for {{ inventory_hostname }} to be Ready
+      command: kubectl wait node/{{ inventory_hostname }} --for=condition=Ready --timeout=120s
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-    - name: Uncordon node2
-      command: kubectl uncordon node2
-      delegate_to: node1
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-
-    - name: Wait 60s before next node
-      pause:
-        seconds: 60
-
-- name: Rolling Update — node1 (last)
-  hosts: node1
-  become: yes
-  vars:
-    ansible_port: "{{ ssh_port }}"
-  tasks:
-    - name: Drain node1
-      command: kubectl drain node1 --ignore-daemonsets --delete-emptydir-data --timeout=120s
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-
-    - name: Update OS packages
-      apt:
-        upgrade: dist
-        update_cache: yes
-        autoremove: yes
-
-    - name: Update K3s
-      shell: curl -sfL https://get.k3s.io | sh -
-      environment:
-        INSTALL_K3S_VERSION: "{{ k3s_version }}"
-        K3S_TOKEN: "{{ k3s_token }}"
-
-    - name: Restart K3s
-      systemd:
-        name: k3s
-        state: restarted
-
-    - name: Wait for node1 to be Ready
-      command: kubectl wait node/node1 --for=condition=Ready --timeout=120s
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-
-    - name: Uncordon node1
-      command: kubectl uncordon node1
+    - name: Uncordon {{ inventory_hostname }}
+      command: kubectl uncordon {{ inventory_hostname }}
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
 - name: Verify cluster after update
-  hosts: node1
+  hosts: "{{ groups['control_plane'] | first }}"
   become: yes
   vars:
     ansible_port: "{{ ssh_port }}"
