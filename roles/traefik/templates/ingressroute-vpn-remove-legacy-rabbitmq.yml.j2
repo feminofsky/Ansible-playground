@@ -1,0 +1,14 @@
+# Remove legacy RabbitMQ IngressRoutes that were in traefik namespace (moved to dev/prod).
+# Usage: kubectl delete -f this-file --ignore-not-found=true
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: rabbitmq-dev-vpn
+  namespace: {{ traefik_namespace }}
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: rabbitmq-prod-vpn
+  namespace: {{ traefik_namespace }}
