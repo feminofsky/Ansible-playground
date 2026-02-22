@@ -30,6 +30,9 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Git worktrees (isolated branches)
+.worktrees/
+
 # IDE
 .idea/
 .vscode/
