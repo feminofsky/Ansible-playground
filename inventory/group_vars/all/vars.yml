@@ -128,6 +128,24 @@ monitoring_loki_enabled: true
 monitoring_jaeger_enabled: true
 monitoring_traefik_tracing_enabled: true
 
+# ─── Longhorn (storage, default StorageClass) ───────
+longhorn_enabled: true
+longhorn_namespace: longhorn-system
+
+# ─── Falco (runtime security) ───────────────────────
+falco_enabled: true
+falco_namespace: falco
+
+# ─── Velero (backup to external S3) ─────────────────
+velero_enabled: true
+velero_namespace: velero
+velero_s3_bucket: ""          # Set to your bucket name (vault or vars)
+velero_s3_region: ""          # e.g. us-east-1 or auto for R2
+velero_s3_url: ""             # Optional: S3-compatible endpoint (R2, B2, etc.)
+velero_schedule_enabled: true
+velero_schedule_cron: "0 2 * * *"
+velero_schedule_retention: "7"
+
 # ─── Fail2Ban ───────────────────────────────────────
 fail2ban_maxretry: 3
 fail2ban_bantime: 86400
@@ -194,6 +212,7 @@ vpn_internal_hosts:
   - grafana.blumefy.local    # Grafana (monitoring)
   - jaeger.blumefy.local     # Jaeger (tracing)
   - metallb.blumefy.local    # MetalLB has no UI; host resolves for convenience
+  - longhorn.blumefy.local
 
 # ─── Subdomains ─────────────────────────────────────
 # IngressRoutes for prod/dev apps. Set when you have matching K8s Services deployed.
