@@ -1,0 +1,23 @@
+# roles/bugsink/templates/bugsink-values.yml.j2
+# Bugsink Helm chart values — VPN-only; Traefik IngressRoute added by role/traefik
+---
+baseUrl: "https://bugsink.{{ vpn_internal_domain | default('blumefy.local') }}"
+
+secretKey:
+  value: ""
+  existingSecret: "bugsink-secret"
+  existingSecretKey: "secret-key"
+
+admin:
+  auth: ""
+  existingSecret: ""
+  existingSecretKey: "auth"
+
+ingress:
+  enabled: false
+
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      size: "{{ bugsink_postgresql_size }}"
