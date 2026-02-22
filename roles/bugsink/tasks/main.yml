@@ -1,0 +1,76 @@
+# roles/bugsink/tasks/main.yml
+# Install Bugsink via Helm (community chart); VPN-only via Traefik IngressRoute
+---
+- name: Skip when Bugsink is disabled
+  meta: end_play
+  when: not (bugsink_enabled | default(false))
+
+- name: Ensure vault secret for Bugsink
+  assert:
+    that: vault_bugsink_secret_key is defined
+    fail_msg: >-
+      vault_bugsink_secret_key must be set in vault.yml (50+ char random string).
+      Generate with: openssl rand -base64 48
+      Edit: ansible-vault edit inventory/group_vars/all/vault.yml
+
+- name: Add Bugsink Helm repo
+  command: helm repo add bugsink https://bugsink.github.io/helm-charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create Bugsink namespace
+  shell: kubectl create namespace {{ bugsink_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template Bugsink Kubernetes secret
+  template:
+    src: bugsink-secret.yml.j2
+    dest: /tmp/bugsink-secret.yml
+
+- name: Apply Bugsink secret to cluster
+  command: kubectl apply -f /tmp/bugsink-secret.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Remove Bugsink secret manifest from disk
+  file:
+    path: /tmp/bugsink-secret.yml
+    state: absent
+
+- name: Template Bugsink Helm values
+  template:
+    src: bugsink-values.yml.j2
+    dest: /tmp/bugsink-values.yml
+
+- name: Install or upgrade Bugsink
+  command: >
+    helm upgrade --install bugsink bugsink/bugsink
+    --namespace {{ bugsink_namespace }}
+    --values /tmp/bugsink-values.yml
+    {{ ('--version ' + bugsink_helm_chart_version) if (bugsink_helm_chart_version | default('') | trim | length > 0) else '' }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Bugsink app pod
+  command: >
+    kubectl wait pod -l app.kubernetes.io/name=bugsink
+    --namespace {{ bugsink_namespace }}
+    --for=condition=Ready
+    --timeout=600s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Show Bugsink access info
+  debug:
+    msg: |
+      Bugsink is running. VPN-only: https://bugsink.{{ vpn_internal_domain | default('blumefy.local') }}
+      Ensure bugsink.blumefy.local is in wireguard-configs (or dnsmasq) when connecting via VPN.
+      First login: create superuser in UI or set admin auth in vault and re-deploy.
