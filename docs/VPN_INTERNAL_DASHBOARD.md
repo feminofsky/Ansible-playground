@@ -74,6 +74,9 @@ When connected to WireGuard, these URLs are available at `*.blumefy.local`:
 | https://rabbitmq.blumefy.local | RabbitMQ (Prod) | Message broker management UI — prod namespace |
 | https://redis-dev.blumefy.local | Redis (Dev) | Redis Commander — browse keys, CLI |
 | https://redis.blumefy.local | Redis (Prod) | Redis Commander — browse keys, CLI |
+| https://longhorn.blumefy.local | Longhorn | Storage & volumes UI (when longhorn_enabled) |
+| https://grafana.blumefy.local/d/falco | Falco | Runtime security dashboard in Grafana (when falco_enabled and monitoring enabled) |
+| https://grafana.blumefy.local/d/velero | Velero | Backup status dashboard in Grafana (when velero_enabled and monitoring enabled) |
 | metallb.blumefy.local | MetalLB | (No web UI; host resolves for kubectl / status checks) |
 
 **Note:** Traefik dashboard requires the trailing slash: `/dashboard/`
