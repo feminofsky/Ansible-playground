@@ -163,3 +163,70 @@ spec:
   tls:
     secretName: tls-blumefy-local
 {% endif %}
+{% if bugsink_enabled | default(false) %}
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: bugsink-vpn
+  namespace: {{ traefik_namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`bugsink.{{ vpn_internal_domain | default('blumefy.local') }}`)
+      kind: Rule
+      middlewares:
+        - name: vpn-allowlist
+          namespace: {{ traefik_namespace }}
+      services:
+        - name: bugsink
+          port: 8000
+          namespace: {{ bugsink_namespace }}
+  tls:
+    secretName: tls-blumefy-local
+{% endif %}
+{% if monitoring_enabled | default(false) and vpn_internal_ui_enabled | default(false) %}
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana-vpn
+  namespace: {{ monitoring_namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`grafana.{{ vpn_internal_domain | default('blumefy.local') }}`)
+      kind: Rule
+      middlewares:
+        - name: vpn-allowlist
+          namespace: {{ traefik_namespace }}
+      services:
+        - name: prometheus-grafana
+          port: 80
+          namespace: {{ monitoring_namespace }}
+  tls:
+    secretName: tls-blumefy-local
+---
+apiVersion: {{ traefik_crd_api_group | default('traefik.io') }}/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jaeger-vpn
+  namespace: {{ monitoring_namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`jaeger.{{ vpn_internal_domain | default('blumefy.local') }}`)
+      kind: Rule
+      middlewares:
+        - name: vpn-allowlist
+          namespace: {{ traefik_namespace }}
+      services:
+        - name: jaeger-jaeger-query
+          port: 16686
+          namespace: {{ monitoring_namespace }}
+  tls:
+    secretName: tls-blumefy-local
+{% endif %}
