@@ -12,6 +12,7 @@
 #   --tags metallb      MetalLB (-e metallb_force_reinstall=true to uninstall+reinstall)
 #   --tags longhorn     Longhorn (storage, default StorageClass)
 #   --tags falco        Falco (runtime security)
+#   --tags velero       Velero (backup to S3)
 #   --tags traefik      Traefik ingress
 #   --tags infisical    Infisical
 #   --tags secrets_store_csi  Secrets Store CSI Driver + Infisical provider
@@ -215,6 +216,19 @@
     ansible_port: "{{ ssh_port }}"
   roles:
     - bugsink
+
+# ── Phase 5f: Install Velero (node1 only) ───────────
+- name: Phase 5f — Install Velero
+  hosts: node1
+  become: yes
+  tags: velero
+  pre_tasks:
+    - meta: end_play
+      when: not (velero_enabled | default(false))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - velero
 
 # ── Phase 6: Install Monitoring (node1 only) ────────
 # Skip when monitoring_enabled: false in vars
