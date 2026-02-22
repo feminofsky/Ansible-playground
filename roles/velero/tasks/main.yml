@@ -1,0 +1,95 @@
+# Install Velero via Helm (vmware-tanzu/velero); S3 credentials from vault; optional Schedule CRD.
+---
+- name: Skip when Velero is disabled
+  meta: end_play
+  when: not (velero_enabled | default(false))
+
+- name: Ensure vault S3 credentials are set
+  assert:
+    that:
+      - vault_velero_s3_access_key is defined
+      - vault_velero_s3_secret_key is defined
+    fail_msg: >-
+      vault_velero_s3_access_key and vault_velero_s3_secret_key must be set in vault.yml.
+      Edit: ansible-vault edit inventory/group_vars/all/vault.yml
+
+- name: Ensure Velero S3 bucket and region are set
+  assert:
+    that:
+      - velero_s3_bucket | default('') | trim | length > 0
+      - velero_s3_region | default('') | trim | length > 0
+    fail_msg: >-
+      velero_s3_bucket and velero_s3_region must be set (e.g. in group_vars or vault).
+
+- name: Add Velero Helm repo
+  command: helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create Velero namespace
+  shell: kubectl create namespace {{ velero_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template Velero credentials secret
+  template:
+    src: velero-credentials-secret.yml.j2
+    dest: /tmp/velero-credentials-secret.yml
+
+- name: Apply Velero credentials secret
+  command: kubectl apply -f /tmp/velero-credentials-secret.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Remove Velero credentials manifest from disk
+  file:
+    path: /tmp/velero-credentials-secret.yml
+    state: absent
+
+- name: Template Velero Helm values
+  template:
+    src: velero-values.yml.j2
+    dest: /tmp/velero-values.yml
+
+- name: Install or upgrade Velero
+  command: >
+    helm upgrade --install velero vmware-tanzu/velero
+    --namespace {{ velero_namespace }}
+    --values /tmp/velero-values.yml
+    {{ ('--version ' + velero_helm_chart_version) if (velero_helm_chart_version | default('') | trim | length > 0) else '' }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Velero deployment
+  command: >
+    kubectl wait deployment velero
+    --namespace {{ velero_namespace }}
+    --for=condition=available
+    --timeout=300s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template Velero Schedule
+  template:
+    src: velero-schedule.yml.j2
+    dest: /tmp/velero-schedule.yml
+  when: velero_schedule_enabled | default(false)
+
+- name: Apply Velero Schedule
+  command: kubectl apply -f /tmp/velero-schedule.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: velero_schedule_enabled | default(false)
+
+- name: Remove Velero Schedule manifest from disk
+  file:
+    path: /tmp/velero-schedule.yml
+    state: absent
+  when: velero_schedule_enabled | default(false)

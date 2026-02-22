@@ -1,0 +1,14 @@
+# Velero Schedule — daily backup with retention
+# Applied when velero_schedule_enabled is true
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: default
+  namespace: {{ velero_namespace }}
+spec:
+  schedule: "{{ velero_schedule_cron }}"
+  template:
+    ttl: "{{ (velero_schedule_retention | default('7') | int * 24) }}h"
+    includedNamespaces:
+      - "*"
+    storageLocation: default

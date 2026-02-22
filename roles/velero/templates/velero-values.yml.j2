@@ -1,0 +1,25 @@
+# Velero Helm values — S3 backup storage, credentials from pre-created secret
+configuration:
+  provider: aws
+  backupStorageLocation:
+    name: default
+    provider: aws
+    bucket: {{ velero_s3_bucket }}
+    config:
+      region: {{ velero_s3_region }}
+{% if velero_s3_url | default('') | trim | length > 0 %}
+      s3Url: {{ velero_s3_url }}
+{% endif %}
+
+credentials:
+  useSecret: true
+  existingSecret: velero-aws-credentials
+
+# AWS plugin required for S3 backup storage
+initContainers:
+  - name: velero-plugin-for-aws
+    image: velero/velero-plugin-for-aws:v1.11.0
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins

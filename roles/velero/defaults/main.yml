@@ -1,0 +1,10 @@
+---
+velero_enabled: false
+velero_namespace: velero
+velero_s3_bucket: ""
+velero_s3_region: ""
+velero_s3_url: ""
+velero_schedule_enabled: true
+velero_schedule_cron: "0 2 * * *"
+velero_schedule_retention: "7"
+velero_helm_chart_version: ""   # empty = latest
