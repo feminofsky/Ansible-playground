@@ -1,0 +1,6 @@
+---
+falco_enabled: false
+falco_namespace: falco
+falco_helm_chart_version: ""
+falco_driver: "ebpf"
+falco_metrics_enabled: true

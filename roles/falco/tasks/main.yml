@@ -1,0 +1,44 @@
+# Install Falco via Helm (falcosecurity chart); DaemonSet for runtime security.
+---
+- name: Skip when Falco is disabled
+  meta: end_play
+  when: not (falco_enabled | default(false))
+
+- name: Add Falco Helm repo
+  command: helm repo add falcosecurity https://falco.org/charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create Falco namespace
+  shell: kubectl create namespace {{ falco_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template Falco Helm values
+  template:
+    src: falco-values.yml.j2
+    dest: /tmp/falco-values.yml
+
+- name: Install or upgrade Falco
+  command: >
+    helm upgrade --install falco falcosecurity/falco
+    --namespace {{ falco_namespace }}
+    --values /tmp/falco-values.yml
+    {{ ('--version ' + falco_helm_chart_version) if (falco_helm_chart_version | default('') | trim | length > 0) else '' }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Falco DaemonSet pods to be ready
+  command: >
+    kubectl rollout status daemonset/falco
+    --namespace {{ falco_namespace }}
+    --timeout=600s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml

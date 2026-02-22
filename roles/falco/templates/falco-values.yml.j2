@@ -1,0 +1,14 @@
+# Minimal Falco Helm values: driver, json_output, metrics.
+# Chart: falcosecurity/falco (https://github.com/falcosecurity/charts/tree/master/charts/falco)
+driver:
+  kind: {{ falco_driver }}
+
+falco:
+  json_output: false
+{% if falco_metrics_enabled | default(true) %}
+  webserver:
+    prometheus_metrics_enabled: true
+{% endif %}
+
+metrics:
+  enabled: {{ falco_metrics_enabled | default(true) | lower }}
