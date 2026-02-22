@@ -1,0 +1,71 @@
+# Install Longhorn via Helm; set as default StorageClass and unset others.
+---
+- name: Skip when Longhorn is disabled
+  meta: end_play
+  when: not (longhorn_enabled | default(false))
+
+- name: Add Longhorn Helm repo
+  command: helm repo add longhorn https://charts.longhorn.io
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Update Helm repos
+  command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Create Longhorn namespace
+  shell: kubectl create namespace {{ longhorn_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Template Longhorn values
+  template:
+    src: longhorn-values.yml.j2
+    dest: /tmp/longhorn-values.yml
+
+- name: Install or upgrade Longhorn
+  command: >
+    helm upgrade --install longhorn longhorn/longhorn
+    --namespace {{ longhorn_namespace }}
+    --values /tmp/longhorn-values.yml
+    {{ ('--version ' + longhorn_helm_chart_version) if (longhorn_helm_chart_version | default('') | trim | length > 0) else '' }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for longhorn-manager to be ready
+  command: >
+    kubectl wait deployment longhorn-manager
+    --namespace {{ longhorn_namespace }}
+    --for=condition=available
+    --timeout=600s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Get other default StorageClasses (not longhorn)
+  shell: |
+    kubectl get storageclass -o json | \
+    jq -r '.items[] | select(.metadata.annotations["storageclass.kubernetes.io/is-default-class"] == "true") | select(.metadata.name != "longhorn") | .metadata.name'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: other_default_storage_classes
+  changed_when: false
+  failed_when: false
+
+- name: Unset default on other StorageClasses
+  command: >
+    kubectl patch storageclass {{ item }}
+    -p '{"metadata": {"annotations": {"storageclass.kubernetes.io/is-default-class": "false"}}}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  loop: "{{ other_default_storage_classes.stdout_lines | default([]) }}"
+  when: other_default_storage_classes.stdout | length > 0
+
+- name: Set longhorn as default StorageClass
+  command: >
+    kubectl patch storageclass longhorn
+    -p '{"metadata": {"annotations": {"storageclass.kubernetes.io/is-default-class": "true"}}}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml

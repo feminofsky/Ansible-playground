@@ -1,0 +1,4 @@
+---
+longhorn_enabled: false
+longhorn_namespace: longhorn-system
+longhorn_helm_chart_version: ""   # empty = latest
