@@ -46,8 +46,13 @@
 
 - name: Get other default StorageClasses (not longhorn)
   shell: |
-    kubectl get storageclass -o json | \
-    jq -r '.items[] | select(.metadata.annotations["storageclass.kubernetes.io/is-default-class"] == "true") | select(.metadata.name != "longhorn") | .metadata.name'
+    set -e
+    for sc in $(kubectl get storageclass -o jsonpath='{.items[*].metadata.name}'); do
+      if [ "$sc" != "longhorn" ]; then
+        def=$(kubectl get storageclass "$sc" -o jsonpath='{.metadata.annotations.storageclass\.kubernetes\.io/is-default-class}' 2>/dev/null || true)
+        if [ "$def" = "true" ]; then echo "$sc"; fi
+      fi
+    done
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   register: other_default_storage_classes
