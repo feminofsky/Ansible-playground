@@ -1,0 +1,20 @@
+---
+# Deploy Loki (log aggregation). SingleBinary + MinIO; Grafana datasource uses loki-gateway.
+- name: Template Loki values
+  when: monitoring_loki_enabled | default(true)
+  template:
+    src: loki-values.yml.j2
+    dest: /tmp/loki-values.yml
+
+- name: Install Loki Helm release
+  when: monitoring_loki_enabled | default(true)
+  command: >
+    helm upgrade --install loki grafana/loki
+    --namespace {{ monitoring_namespace }}
+    --values /tmp/loki-values.yml
+    --wait
+    --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: loki_install
+  changed_when: "'has been upgraded' in loki_install.stdout or 'has been installed' in loki_install.stdout"

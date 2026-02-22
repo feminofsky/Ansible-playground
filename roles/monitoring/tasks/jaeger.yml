@@ -1,0 +1,14 @@
+---
+# Deploy Jaeger (all-in-one). Query UI service: jaeger:16686
+- name: Install Jaeger Helm release
+  when: monitoring_jaeger_enabled | default(true)
+  command: >
+    helm upgrade --install jaeger jaegertracing/jaeger
+    --namespace {{ monitoring_namespace }}
+    --set allInOne.enabled=true
+    --wait
+    --timeout 5m
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: jaeger_install
+  changed_when: "'has been upgraded' in jaeger_install.stdout or 'has been installed' in jaeger_install.stdout"

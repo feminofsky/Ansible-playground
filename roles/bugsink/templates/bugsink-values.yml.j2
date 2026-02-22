@@ -3,6 +3,11 @@
 ---
 baseUrl: "https://bugsink.{{ vpn_internal_domain | default('blumefy.local') }}"
 
+# Required when behind Traefik (HTTPS terminator): Django trusts X-Forwarded-Proto
+extraEnv:
+  configs:
+    BEHIND_HTTPS_PROXY: "true"
+
 secretKey:
   value: ""
   existingSecret: "bugsink-secret"
@@ -16,8 +21,27 @@ admin:
 ingress:
   enabled: false
 
+{% if bugsink_smtp_enabled | default(false) %}
+smtp:
+  enabled: true
+  host: "{{ bugsink_smtp_host }}"
+  port: {{ bugsink_smtp_port }}
+  useTls: {{ bugsink_smtp_use_tls }}
+  useSsl: {{ bugsink_smtp_use_ssl }}
+  timeout: {{ bugsink_smtp_timeout }}
+  defaultFrom: "{{ bugsink_smtp_default_from }}"
+  existingSecret: "bugsink-smtp-secret"
+  existingSecretUsernameKey: "username"
+  existingSecretPasswordKey: "password"
+{% endif %}
+
 postgresql:
   enabled: true
+  # Override image tag: chart version tags often removed from Docker Hub; "latest" is kept current
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: "{{ bugsink_postgresql_image_tag }}"
   primary:
     persistence:
       size: "{{ bugsink_postgresql_size }}"

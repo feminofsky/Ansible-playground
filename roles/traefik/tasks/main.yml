@@ -182,18 +182,22 @@
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   loop: "{{ subdomains }}"
 
-- name: Ensure argocd and infisical namespaces exist (for VPN IngressRoutes)
+- name: Ensure argocd, infisical and bugsink namespaces exist (for VPN IngressRoutes)
   when: vpn_internal_ui_enabled | default(false)
   shell: kubectl create namespace {{ item }} --dry-run=client -o yaml | kubectl apply -f -
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-  loop:
-    - "{{ argocd_namespace | default('argocd') }}"
-    - "{{ infisical_namespace }}"
+  loop: "{{ [argocd_namespace | default('argocd'), infisical_namespace] + ([bugsink_namespace] if (bugsink_enabled | default(false)) else []) }}"
 
 - name: Generate self-signed TLS cert for *.blumefy.local
   when: vpn_internal_ui_enabled | default(false)
   block:
+    - name: Create monitoring namespace (for VPN TLS when monitoring enabled)
+      when: monitoring_enabled | default(false)
+      shell: kubectl create namespace {{ monitoring_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
     - name: Create self-signed cert for VPN internal domain
       command: >
         openssl req -x509 -nodes -days 3650 -newkey rsa:2048
@@ -225,6 +229,26 @@
         kubectl create secret tls tls-blumefy-local
         --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
         -n {{ infisical_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create TLS secret for VPN internal (bugsink namespace)
+      when: bugsink_enabled | default(false)
+      shell: >
+        kubectl create secret tls tls-blumefy-local
+        --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
+        -n {{ bugsink_namespace }} --dry-run=client -o yaml
+        | kubectl apply -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create TLS secret for VPN internal (monitoring namespace)
+      when: monitoring_enabled | default(false)
+      shell: >
+        kubectl create secret tls tls-blumefy-local
+        --cert=/tmp/blumefy-local.crt --key=/tmp/blumefy-local.key
+        -n {{ monitoring_namespace }} --dry-run=client -o yaml
         | kubectl apply -f -
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
@@ -309,6 +333,16 @@
       register: delete_legacy_rabbitmq
       failed_when: false
       changed_when: delete_legacy_rabbitmq.rc == 0 and 'deleted' in delete_legacy_rabbitmq.stdout
+
+    - name: Remove stale monitoring IngressRoutes from monitoring namespace (they now live in traefik namespace)
+      shell: >
+        kubectl delete ingressroute prometheus-vpn alertmanager-vpn grafana-vpn jaeger-vpn
+        -n {{ monitoring_namespace }}
+        --ignore-not-found
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: delete_monitoring_ir
+      changed_when: "'deleted' in delete_monitoring_ir.stdout or 'No resources found' not in delete_monitoring_ir.stdout"
 
     - name: Template VPN IngressRoutes
       template:

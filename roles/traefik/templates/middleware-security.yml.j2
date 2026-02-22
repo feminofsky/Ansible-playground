@@ -18,7 +18,5 @@ spec:
     stsSeconds: 31536000
     referrerPolicy: strict-origin-when-cross-origin
     permissionsPolicy: "camera=(), microphone=(), geolocation=()"
-    customResponseHeaders:
-      server: ""
-      X-Powered-By: ""
+    # Do not set server/X-Powered-By to "" — empty header values can cause net::ERR_HTTP2_PROTOCOL_ERROR
 {% endfor %}

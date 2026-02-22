@@ -3,3 +3,11 @@ bugsink_enabled: false
 bugsink_namespace: bugsink
 bugsink_helm_chart_version: ""
 bugsink_postgresql_size: 5Gi
+bugsink_postgresql_image_tag: "latest"
+bugsink_smtp_enabled: false
+bugsink_smtp_host: ""
+bugsink_smtp_port: 587
+bugsink_smtp_use_tls: true
+bugsink_smtp_use_ssl: false
+bugsink_smtp_timeout: 10
+bugsink_smtp_default_from: "Bugsink <noreply@example.com>"

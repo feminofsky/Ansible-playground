@@ -6,6 +6,18 @@
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   changed_when: false
 
+- name: Add Grafana Helm repo (for Loki)
+  command: helm repo add grafana https://grafana.github.io/helm-charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
+- name: Add Jaegertracing Helm repo
+  command: helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+
 - name: Update Helm repos
   command: helm repo update
   environment:
@@ -13,16 +25,26 @@
   changed_when: false
 
 - name: Create monitoring namespace
-  command: kubectl create namespace {{ monitoring_namespace }} --dry-run=client -o yaml | kubectl apply -f -
+  shell: kubectl create namespace {{ monitoring_namespace }} --dry-run=client -o yaml | kubectl apply -f -
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+- name: Deploy Loki
+  include_tasks: loki.yml
+  when: monitoring_loki_enabled | default(true)
+
+- name: Deploy Jaeger
+  include_tasks: jaeger.yml
+  when: monitoring_jaeger_enabled | default(true)
+
 - name: Template monitoring values
+  when: monitoring_prometheus_enabled | default(true)
   template:
     src: monitoring-values.yml.j2
     dest: /tmp/monitoring-values.yml
 
 - name: Install kube-prometheus-stack
+  when: monitoring_prometheus_enabled | default(true)
   command: >
     helm upgrade --install prometheus prometheus-community/kube-prometheus-stack
     --namespace {{ monitoring_namespace }}
@@ -32,26 +54,78 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
-- name: Apply Grafana IngressRoute
-  template:
-    src: grafana-ingressroute.yml.j2
-    dest: /tmp/grafana-ingressroute.yml
-
-- name: Apply Grafana route to cluster
-  command: kubectl apply -f /tmp/grafana-ingressroute.yml
-  environment:
-    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-
 - name: Apply alerting rules
+  when: monitoring_prometheus_enabled | default(true)
   template:
     src: alert-rules.yml.j2
     dest: /tmp/alert-rules.yml
 
 - name: Apply alert rules to cluster
+  when: monitoring_prometheus_enabled | default(true)
   command: kubectl apply -f /tmp/alert-rules.yml
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+- name: Copy Applications & Infrastructure dashboard JSON to host
+  when: monitoring_grafana_enabled | default(true)
+  copy:
+    src: dashboard-apps-infra.json
+    dest: /tmp/grafana-dashboard-apps-infra.json
+    mode: '0644'
+
+- name: Provision Grafana dashboard (Applications & Infrastructure)
+  when: monitoring_grafana_enabled | default(true)
+  shell: >
+    kubectl create configmap grafana-dashboard-apps-infra
+    --from-file=dashboard-apps-infra.json=/tmp/grafana-dashboard-apps-infra.json
+    -n {{ monitoring_namespace }}
+    --dry-run=client -o yaml
+    | kubectl label -f - --local grafana_dashboard=1 --overwrite -o yaml
+    | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: grafana_dashboard_cm
+  changed_when: "'configmap/grafana-dashboard-apps-infra configured' in grafana_dashboard_cm.stdout or 'configmap/grafana-dashboard-apps-infra created' in grafana_dashboard_cm.stdout"
+
+- name: Copy Traefik dashboard JSON to host
+  when: monitoring_grafana_enabled | default(true)
+  copy:
+    src: dashboard-traefik.json
+    dest: /tmp/grafana-dashboard-traefik.json
+    mode: '0644'
+
+- name: Provision Grafana dashboard (Traefik)
+  when: monitoring_grafana_enabled | default(true)
+  shell: >
+    kubectl create configmap grafana-dashboard-traefik
+    --from-file=dashboard-traefik.json=/tmp/grafana-dashboard-traefik.json
+    -n {{ monitoring_namespace }}
+    --dry-run=client -o yaml
+    | kubectl label -f - --local grafana_dashboard=1 --overwrite -o yaml
+    | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+- name: Copy Argo CD dashboard JSON to host
+  when: monitoring_grafana_enabled | default(true)
+  copy:
+    src: dashboard-argocd.json
+    dest: /tmp/grafana-dashboard-argocd.json
+    mode: '0644'
+
+- name: Provision Grafana dashboard (Argo CD)
+  when: monitoring_grafana_enabled | default(true)
+  shell: >
+    kubectl create configmap grafana-dashboard-argocd
+    --from-file=dashboard-argocd.json=/tmp/grafana-dashboard-argocd.json
+    -n {{ monitoring_namespace }}
+    --dry-run=client -o yaml
+    | kubectl label -f - --local grafana_dashboard=1 --overwrite -o yaml
+    | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
 - name: Show Grafana access info
+  when: monitoring_grafana_enabled | default(true)
   debug:
-    msg: "Grafana available at: https://grafana.{{ domain }} — user: admin / pass: {{ grafana_admin_password }}"
+    msg: "Grafana (VPN): https://grafana.{{ vpn_internal_domain | default('blumefy.local') }} — Dashboards: Applications & Infrastructure, Traefik, Argo CD"

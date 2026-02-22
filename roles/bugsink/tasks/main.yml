@@ -45,6 +45,34 @@
     path: /tmp/bugsink-secret.yml
     state: absent
 
+- name: Ensure vault SMTP credentials when SMTP is enabled
+  assert:
+    that:
+      - vault_bugsink_smtp_username is defined
+      - vault_bugsink_smtp_password is defined
+    fail_msg: >-
+      When bugsink_smtp_enabled is true, set vault_bugsink_smtp_username and vault_bugsink_smtp_password in vault.yml.
+      Edit: ansible-vault edit inventory/group_vars/all/vault.yml
+  when: bugsink_smtp_enabled | default(false)
+
+- name: Template Bugsink SMTP secret
+  template:
+    src: bugsink-smtp-secret.yml.j2
+    dest: /tmp/bugsink-smtp-secret.yml
+  when: bugsink_smtp_enabled | default(false)
+
+- name: Apply Bugsink SMTP secret to cluster
+  command: kubectl apply -f /tmp/bugsink-smtp-secret.yml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: bugsink_smtp_enabled | default(false)
+
+- name: Remove Bugsink SMTP secret manifest from disk
+  file:
+    path: /tmp/bugsink-smtp-secret.yml
+    state: absent
+  when: bugsink_smtp_enabled | default(false)
+
 - name: Template Bugsink Helm values
   template:
     src: bugsink-values.yml.j2

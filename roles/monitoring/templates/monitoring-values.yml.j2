@@ -1,12 +1,27 @@
 # roles/monitoring/templates/monitoring-values.yml.j2
 grafana:
-  enabled: true
+  enabled: {{ monitoring_grafana_enabled | default(true) }}
   adminPassword: "{{ grafana_admin_password }}"
   persistence:
     enabled: true
     size: 5Gi
   ingress:
     enabled: false
+{% if (monitoring_loki_enabled | default(true)) or (monitoring_jaeger_enabled | default(true)) %}
+  additionalDataSources:
+{% if monitoring_loki_enabled | default(true) %}
+    - name: Loki
+      type: loki
+      url: http://loki-gateway.{{ monitoring_namespace }}.svc:80
+      access: proxy
+{% endif %}
+{% if monitoring_jaeger_enabled | default(true) %}
+    - name: Jaeger
+      type: jaeger
+      url: http://jaeger.{{ monitoring_namespace }}.svc:16686
+      access: proxy
+{% endif %}
+{% endif %}
 
 prometheus:
   prometheusSpec:

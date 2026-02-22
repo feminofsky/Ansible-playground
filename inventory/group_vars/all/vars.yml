@@ -59,8 +59,10 @@ traefik_version: "39.0.1"   # Helm chart version (Traefik v3)
 traefik_namespace: traefik
 traefik_helm_wait_timeout: "10m"   # Helm --wait timeout; increase if upgrade times out (e.g. slow image pull)
 traefik_crd_api_group: traefik.io   # v3 uses traefik.io; v2 used traefik.containo.us
-traefik_replicas: 1          # 1 replica: PVC is ReadWriteOnce, can't spread across nodes
+traefik_replicas: 1          # For 2+ replicas: set traefik_persistence_storage_class to an RWX storage class (e.g. longhorn, nfs)
 traefik_dashboard_exposed: false   # Set true when vpn_internal_ui_enabled
+# Storage class for persistence (ACME certs). Required for traefik_replicas > 1 — must support ReadWriteMany (RWX) so all replicas can mount the same volume. Leave empty for default (RWO; single replica only).
+traefik_persistence_storage_class: ""   # e.g. "longhorn" or your RWX provisioner name
 vpn_internal_ui_enabled: true      # Expose internal UIs at *.blumefy.local (VPN-only, self-signed TLS)
 vpn_internal_domain: blumefy.local # .local avoids confusion with public blumefy.com
 traefik_vpn_node: node1            # K8s node with WireGuard (10.10.10.1). Override if your node has different name.
@@ -116,9 +118,22 @@ bugsink_enabled: true
 bugsink_namespace: bugsink
 bugsink_helm_chart_version: ""   # Pin e.g. "1.2.3" for reproducibility; empty = latest
 bugsink_postgresql_size: 5Gi
+# Override Bitnami PostgreSQL image (chart version tags often removed; use latest for reliability)
+bugsink_postgresql_image_tag: "latest"
+# Service name for Traefik IngressRoute (chart usually creates "bugsink"; if 404/503 run: kubectl get svc -n bugsink)
+bugsink_service_name: "bugsink"
+
+# SMTP (alerts, password reset). When true, set in vault: vault_bugsink_smtp_username, vault_bugsink_smtp_password
+bugsink_smtp_enabled: true
+bugsink_smtp_host: "smtp.zeptomail.com"          # e.g. smtp.gmail.com or smtp.sendgrid.net
+bugsink_smtp_port: 587
+bugsink_smtp_use_tls: true     # STARTTLS (port 587)
+bugsink_smtp_use_ssl: false    # implicit TLS (port 465)
+bugsink_smtp_timeout: 10
+bugsink_smtp_default_from: "Bugsink <bug@blumefy.com>"   # change to your domain
 
 # ─── Monitoring ─────────────────────────────────────
-monitoring_enabled: false   # Set to true to install Prometheus + Grafana + Loki + Jaeger
+monitoring_enabled: true   # Set to true to install Prometheus + Grafana + Loki + Jaeger
 monitoring_namespace: monitoring
 grafana_admin_password: "{{ vault_grafana_password }}"   # Store in vault.yml
 # Component toggles (all true = full stack)
@@ -191,6 +206,8 @@ vpn_internal_hosts:
   - redis-dev.blumefy.local  # Redis Commander UI — dev
   - redis.blumefy.local      # Redis Commander UI — prod
   - bugsink.blumefy.local    # Bugsink error tracking UI
+  - prometheus.blumefy.local # Prometheus (monitoring)
+  - alertmanager.blumefy.local # Alertmanager (monitoring)
   - grafana.blumefy.local    # Grafana (monitoring)
   - jaeger.blumefy.local     # Jaeger (tracing)
   - metallb.blumefy.local    # MetalLB has no UI; host resolves for convenience

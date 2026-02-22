@@ -2,6 +2,13 @@
 deployment:
   replicas: {{ traefik_replicas }}
 
+{% if (monitoring_enabled | default(false)) or (bugsink_enabled | default(false)) %}
+# Allow IngressRoutes in traefik namespace to reference services in other namespaces (monitoring, bugsink)
+providers:
+  kubernetesCRD:
+    allowCrossNamespace: true
+{% endif %}
+
 service:
   type: LoadBalancer
   annotations:
@@ -9,7 +16,7 @@ service:
   spec:
     externalTrafficPolicy: Local   # Preserve client IP for vpn-allowlist middleware
 
-# No anti-affinity: with 1 replica + ReadWriteOnce PVC, spreading would leave 2nd pod pending
+# For 2+ replicas: use persistence.storageClass with ReadWriteMany (RWX) so all pods can mount the same volume (ACME certs).
 
 # Chart v39+: redirectTo → http.redirections.entryPoint; tls → http.tls
 # With hostPort, node forwards 80/443 to Traefik (8000/8443) — no privileged port bind in container
@@ -50,10 +57,34 @@ certificatesResolvers:
 persistence:
   enabled: true
   size: 256Mi
+{% if traefik_persistence_storage_class | default('') | length > 0 %}
+  storageClass: "{{ traefik_persistence_storage_class }}"
+{% endif %}
 
 ingressRoute:
   dashboard:
     enabled: {{ (traefik_dashboard_exposed | default(false)) or (vpn_internal_ui_enabled | default(false)) }}
+
+{% if monitoring_enabled | default(false) and monitoring_traefik_tracing_enabled | default(true) %}
+# Send traces to Jaeger (OTLP). Jaeger all-in-one exposes 4318.
+tracing:
+  otlp:
+    enabled: true
+    http:
+      enabled: true
+      endpoint: "http://jaeger.{{ monitoring_namespace }}.svc:4318/v1/traces"
+{% endif %}
+
+{% if monitoring_enabled | default(false) %}
+# Prometheus metrics for Grafana Traefik dashboard (chart adds metrics entrypoint)
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addServicesLabels: true
+  service:
+    enabled: true
+{% endif %}
 
 additionalArguments:
   - '--global.checknewversion=false'
@@ -71,8 +102,9 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-# When VPN internal enabled: hostPort 80/443 on node1 (10.10.10.1); pin to WireGuard server node
-{% if vpn_internal_ui_enabled | default(false) %}
+# When VPN internal enabled and 1 replica: pin to WireGuard server node (hostPort 80/443 on 10.10.10.1).
+# When replicas > 1: do not pin (pods spread across nodes; each node binds hostPort; requires RWX persistence).
+{% if vpn_internal_ui_enabled | default(false) and traefik_replicas | default(1) <= 1 %}
 nodeSelector:
   kubernetes.io/hostname: "{{ traefik_vpn_node | default('node1') }}"
 tolerations:

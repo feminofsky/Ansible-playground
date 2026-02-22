@@ -70,10 +70,15 @@ When connected to WireGuard, these URLs are available at `*.blumefy.local`:
 | https://traefik.blumefy.local/dashboard/ | Traefik | Ingress controller dashboard; routes, services, TLS |
 | https://argocd.blumefy.local | Argo CD | GitOps deployment UI; sync apps from GitHub |
 | https://infisical.blumefy.local | Infisical | Secrets management; store and inject secrets into apps |
+| https://bugsink.blumefy.local | Bugsink | Self-hosted error tracking (Sentry-SDK compatible) |
 | https://rabbitmq-dev.blumefy.local | RabbitMQ (Dev) | Message broker management UI — dev namespace |
 | https://rabbitmq.blumefy.local | RabbitMQ (Prod) | Message broker management UI — prod namespace |
 | https://redis-dev.blumefy.local | Redis (Dev) | Redis Commander — browse keys, CLI |
 | https://redis.blumefy.local | Redis (Prod) | Redis Commander — browse keys, CLI |
+| https://prometheus.blumefy.local | Prometheus | Metrics & query UI (when monitoring enabled) |
+| https://alertmanager.blumefy.local | Alertmanager | Alert routing & silencing (when monitoring enabled) |
+| https://grafana.blumefy.local | Grafana | Dashboards, Prometheus, Loki, Jaeger (when monitoring enabled) |
+| https://jaeger.blumefy.local | Jaeger | Distributed tracing UI (when monitoring enabled) |
 | metallb.blumefy.local | MetalLB | (No web UI; host resolves for kubectl / status checks) |
 
 **Note:** Traefik dashboard requires the trailing slash: `/dashboard/`

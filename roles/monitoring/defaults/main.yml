@@ -1,0 +1,12 @@
+---
+# Component toggles (override in group_vars if needed)
+monitoring_prometheus_enabled: true
+monitoring_grafana_enabled: true
+monitoring_loki_enabled: true
+monitoring_jaeger_enabled: true
+monitoring_traefik_tracing_enabled: true
+
+# Chart versions (null = use repo default)
+monitoring_kube_prometheus_stack_version: null
+monitoring_loki_chart_version: null
+monitoring_jaeger_chart_version: null
