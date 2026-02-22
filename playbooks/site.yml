@@ -11,6 +11,7 @@
 #   --tags wireguard    WireGuard VPN
 #   --tags metallb      MetalLB (-e metallb_force_reinstall=true to uninstall+reinstall)
 #   --tags longhorn     Longhorn (storage, default StorageClass)
+#   --tags falco        Falco (runtime security)
 #   --tags traefik      Traefik ingress
 #   --tags infisical    Infisical
 #   --tags secrets_store_csi  Secrets Store CSI Driver + Infisical provider
@@ -151,6 +152,19 @@
     ansible_port: "{{ ssh_port }}"
   roles:
     - longhorn
+
+# ── Phase 5a: Install Falco (node1 only) ────────────
+- name: Phase 5a — Install Falco
+  hosts: node1
+  become: yes
+  tags: falco
+  pre_tasks:
+    - meta: end_play
+      when: not (falco_enabled | default(false))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - falco
 
 # ── Phase 5: Install Traefik (node1 only) ───────────
 # helm upgrade applies new values when vars/templates change
