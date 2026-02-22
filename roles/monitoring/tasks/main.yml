@@ -52,6 +52,48 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
 
+- name: Copy Falco dashboard JSON to host
+  when: monitoring_grafana_enabled | default(true)
+  copy:
+    src: dashboard-falco.json
+    dest: /tmp/grafana-dashboard-falco.json
+    mode: '0644'
+
+- name: Provision Grafana dashboard (Falco)
+  when: monitoring_grafana_enabled | default(true)
+  shell: |
+    kubectl create configmap grafana-dashboard-falco \
+      --from-file=dashboard-falco.json=/tmp/grafana-dashboard-falco.json \
+      --namespace {{ monitoring_namespace }} \
+      --dry-run=client -o yaml \
+    | kubectl label -f - --local grafana_dashboard=1 --overwrite -o yaml \
+    | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: grafana_dashboard_falco_cm
+  changed_when: "'configmap/grafana-dashboard-falco configured' in grafana_dashboard_falco_cm.stdout or 'configmap/grafana-dashboard-falco created' in grafana_dashboard_falco_cm.stdout"
+
+- name: Copy Velero dashboard JSON to host
+  when: monitoring_grafana_enabled | default(true)
+  copy:
+    src: dashboard-velero.json
+    dest: /tmp/grafana-dashboard-velero.json
+    mode: '0644'
+
+- name: Provision Grafana dashboard (Velero)
+  when: monitoring_grafana_enabled | default(true)
+  shell: |
+    kubectl create configmap grafana-dashboard-velero \
+      --from-file=dashboard-velero.json=/tmp/grafana-dashboard-velero.json \
+      --namespace {{ monitoring_namespace }} \
+      --dry-run=client -o yaml \
+    | kubectl label -f - --local grafana_dashboard=1 --overwrite -o yaml \
+    | kubectl apply -f -
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: grafana_dashboard_velero_cm
+  changed_when: "'configmap/grafana-dashboard-velero configured' in grafana_dashboard_velero_cm.stdout or 'configmap/grafana-dashboard-velero created' in grafana_dashboard_velero_cm.stdout"
+
 - name: Show Grafana access info
   debug:
     msg: "Grafana available at: https://grafana.{{ domain }} — user: admin / pass: {{ grafana_admin_password }}"
