@@ -13,6 +13,7 @@
 #   --tags traefik      Traefik ingress
 #   --tags infisical    Infisical
 #   --tags secrets_store_csi  Secrets Store CSI Driver + Infisical provider
+#   --tags bugsink      Bugsink (error tracking, VPN-only)
 #   --tags k8s_access   Team member kubeconfig
 #   --tags namespaces   Namespaces + Redis/RabbitMQ
 #   --tags monitoring   Prometheus/Grafana (if enabled)
@@ -172,6 +173,20 @@
     ansible_port: "{{ ssh_port }}"
   roles:
     - secrets_store_csi
+
+# ── Phase 5d: Bugsink (node1 only) ──────────────────
+# Self-hosted error tracking; VPN-only at https://bugsink.blumefy.local
+- name: Phase 5d — Install Bugsink
+  hosts: node1
+  become: yes
+  tags: bugsink
+  pre_tasks:
+    - meta: end_play
+      when: not (bugsink_enabled | default(false))
+  vars:
+    ansible_port: "{{ ssh_port }}"
+  roles:
+    - bugsink
 
 # ── Phase 6: Install Monitoring (node1 only) ────────
 # Skip when monitoring_enabled: false in vars
